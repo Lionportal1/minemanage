@@ -19,3 +19,8 @@ server/
 backups/
 logs/
 config.json
+
+# Build Artifacts
+build/
+dist/
+*.spec
