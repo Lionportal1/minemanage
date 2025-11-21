@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.env
+.venv/
+
+# System
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# MineManage Runtime
+server/
+backups/
+logs/
+config.json
