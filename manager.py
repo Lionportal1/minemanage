@@ -13,6 +13,8 @@ import datetime
 import time
 import hashlib
 import getpass
+import socket
+import struct
 
 # Constants
 CONFIG_FILE = "config.json"
@@ -22,6 +24,7 @@ LOGS_DIR = "logs"
 EULA_FILE = "eula.txt"
 SERVER_JAR = "server.jar"
 SCREEN_NAME = "minemanage_server"
+__version__ = "1.0.0"
 
 def load_config():
     if not os.path.exists(CONFIG_FILE):
@@ -475,6 +478,99 @@ def cmd_console(args):
     except Exception as e:
         print_error(f"Failed to attach: {e}")
 
+def get_server_pid():
+    # Find PID of the java process running server.jar
+    try:
+        # pgrep -f "server.jar"
+        cmd = ["pgrep", "-f", SERVER_JAR]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        pids = result.stdout.strip().split('\n')
+        
+        # If multiple, we might need to be more specific, but for now take the first one
+        # that isn't empty
+        for pid in pids:
+            if pid:
+                return int(pid)
+    except Exception:
+        pass
+    return None
+
+def get_system_stats(pid):
+    if not pid:
+        return 0.0, 0
+    try:
+        # ps -p PID -o %cpu,rss
+        cmd = ["ps", "-p", str(pid), "-o", "%cpu,rss"]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        lines = result.stdout.strip().split('\n')
+        if len(lines) > 1:
+            # Parse second line
+            # %CPU   RSS
+            # 12.5  204800
+            parts = lines[1].split()
+            if len(parts) >= 2:
+                cpu = float(parts[0])
+                rss_kb = int(parts[1])
+                rss_mb = rss_kb / 1024
+                return cpu, rss_mb
+    except Exception:
+        pass
+    return 0.0, 0
+
+def get_player_count():
+    # Minecraft Server List Ping (SLP) 1.7+
+    host = "localhost"
+    port = 25565
+    
+    # Read port from server.properties if possible
+    prop_file = os.path.join(SERVER_DIR, "server.properties")
+    if os.path.exists(prop_file):
+        with open(prop_file, 'r') as f:
+            for line in f:
+                if line.strip().startswith("server-port="):
+                    try:
+                        port = int(line.split('=')[1].strip())
+                    except:
+                        pass
+                    break
+
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(1.0) # Short timeout
+        sock.connect((host, port))
+        
+        # Handshake packet
+        # Length | ID | Proto Ver | Host Len | Host | Port | Next State
+        host_encoded = host.encode('utf-8')
+        handshake = b'\x00\x00' + struct.pack('B', len(host_encoded)) + host_encoded + struct.pack('>H', port) + b'\x01'
+        length = struct.pack('B', len(handshake))
+        sock.send(length + handshake)
+        
+        # Request packet
+        sock.send(b'\x01\x00')
+        
+        # Read response
+        # Length (varint) | ID (varint) | JSON String (string)
+        # We'll just read a chunk and parse the JSON
+        data = sock.recv(4096)
+        sock.close()
+        
+        # Skip varints at start to find JSON '{'
+        # This is a lazy parser but works for standard responses
+        json_start = data.find(b'{')
+        if json_start != -1:
+            json_str = data[json_start:].decode('utf-8', errors='ignore')
+            status = json.loads(json_str)
+            
+            online = status['players']['online']
+            max_players = status['players']['max']
+            return online, max_players
+            
+    except Exception:
+        pass
+        
+    return None, None
+
 def cmd_dashboard(args):
     while True:
         os.system('cls' if os.name == 'nt' else 'clear')
@@ -486,10 +582,33 @@ def cmd_dashboard(args):
         status_text = "RUNNING" if running else "STOPPED"
         print(f"Status: {status_color}{status_text}{Colors.ENDC}")
         
+        # Stats
+        cpu = 0.0
+        ram = 0
+        players_online = "?"
+        players_max = "?"
+        
+        if running:
+            pid = get_server_pid()
+            if pid:
+                cpu, ram = get_system_stats(pid)
+            
+            p_online, p_max = get_player_count()
+            if p_online is not None:
+                players_online = p_online
+                players_max = p_max
+        
         # Config info
         config = load_config()
         print(f"Version: {config.get('server_version')} ({config.get('server_type')})")
         print(f"RAM: {config.get('ram_min')} - {config.get('ram_max')}")
+        
+        # Live Stats Display
+        print("-" * 30)
+        print(f"CPU: {cpu:.1f}%")
+        print(f"RAM: {ram:.0f} MB")
+        print(f"Players: {players_online} / {players_max}")
+        print("-" * 30)
         
         print("\nCommands:")
         print("[S]tart (Detached)")
@@ -501,54 +620,67 @@ def cmd_dashboard(args):
         print("[L]ogs")
         print("[Q]uit Dashboard")
         
-        choice = input("\nEnter command: ").lower()
+        print("\n(Auto-refreshing stats... Press key to select command)")
         
-        if choice == 's':
-            if not running:
-                # We need to construct args object or call cmd_start manually
-                # Let's just call cmd_start with a dummy args object
+        # Simple non-blocking input is hard in pure Python without curses/external libs
+        # So we will just ask for input and refresh only when user hits Enter or types a command
+        # To make it "Live", we'd need a timeout on input.
+        # Using select on stdin (Unix only)
+        import select
+        
+        i, o, e = select.select( [sys.stdin], [], [], 2 ) # 2 second refresh
+        
+        if (i):
+            choice = sys.stdin.readline().strip().lower()
+            
+            if choice == 's':
+                if not running:
+                    # We need to construct args object or call cmd_start manually
+                    # Let's just call cmd_start with a dummy args object
+                    class Args:
+                        ram = None
+                        detach = True
+                    cmd_start(Args())
+                    input("\nPress Enter to continue...")
+                else:
+                    print_info("Server already running.")
+                    time.sleep(1)
+            elif choice == 'x':
+                if running:
+                    cmd_stop(None)
+                    input("\nPress Enter to continue...")
+                else:
+                    print_info("Server not running.")
+                    time.sleep(1)
+            elif choice == 'k':
+                if running:
+                    cmd_kill(None)
+                    input("\nPress Enter to continue...")
+                else:
+                    print_info("Server not running.")
+                    time.sleep(1)
+            elif choice == 'c':
+                cmd_console(None)
+            elif choice == 'b':
+                cmd_backup(None)
+                input("\nPress Enter to continue...")
+            elif choice == 'r':
+                # Restore needs args, let's just call it and it will prompt
                 class Args:
-                    ram = None
-                    detach = True
-                cmd_start(Args())
+                    file = None
+                cmd_restore(Args())
                 input("\nPress Enter to continue...")
-            else:
-                print_info("Server already running.")
-                time.sleep(1)
-        elif choice == 'x':
-            if running:
-                cmd_stop(None)
+            elif choice == 'l':
+                cmd_logs(None)
                 input("\nPress Enter to continue...")
-            else:
-                print_info("Server not running.")
-                time.sleep(1)
-        elif choice == 'k':
-            if running:
-                cmd_kill(None)
-                input("\nPress Enter to continue...")
-            else:
-                print_info("Server not running.")
-                time.sleep(1)
-        elif choice == 'c':
-            cmd_console(None)
-        elif choice == 'b':
-            cmd_backup(None)
-            input("\nPress Enter to continue...")
-        elif choice == 'r':
-            # Restore needs args, let's just call it and it will prompt
-            class Args:
-                file = None
-            cmd_restore(Args())
-            input("\nPress Enter to continue...")
-        elif choice == 'l':
-            cmd_logs(None)
-            input("\nPress Enter to continue...")
-        elif choice == 'q':
-            break
+            elif choice == 'q':
+                break
 
 def main():
     parser = argparse.ArgumentParser(description="MineManage CLI")
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
+    
+    parser.add_argument("--version", action="version", version=f"MineManage {__version__}")
     
     # Init command
     parser_init = subparsers.add_parser("init", help="Initialize the server")

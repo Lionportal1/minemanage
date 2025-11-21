@@ -59,3 +59,22 @@ The `config.json` file containing the admin password hash is **not** version con
 ```bash
 python3 manager.py config set-password
 ```
+
+## Building from Source
+To create a standalone executable:
+1. Install development dependencies:
+   ```bash
+   pip install -r requirements-dev.txt
+   ```
+2. Run the build script:
+   ```bash
+   ./build.sh
+   ```
+   The executable will be in `dist/minemanage`.
+
+## Versioning
+This project adheres to [Semantic Versioning](https://semver.org/).
+Current Version: **1.0.0**
+
+## License
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
