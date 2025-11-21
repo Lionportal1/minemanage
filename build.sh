@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Install dependencies
-pip install -r requirements-dev.txt
+python3 -m pip install -r requirements-dev.txt
 
 # Clean previous builds
 rm -rf build/ dist/ *.spec
@@ -10,6 +10,6 @@ rm -rf build/ dist/ *.spec
 # --onefile: Create a single executable file
 # --name: Name of the executable
 # --clean: Clean PyInstaller cache
-pyinstaller --onefile --name minemanage --clean manager.py
+python3 -m PyInstaller --onefile --name minemanage --clean manager.py
 
 echo "Build complete! Executable is in dist/minemanage"
