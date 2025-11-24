@@ -1,55 +1,59 @@
-# MineManage
+# ⛏️ MineManage
 
-A lightweight, Python-based CLI tool for managing local Minecraft servers.
+> **The friendly, all-in-one CLI for managing your local Minecraft servers.**
 
-## Features
-- **Easy Initialization**: Automatically downloads Vanilla or PaperMC server jars.
-- **Lifecycle Management**: Start, stop, and restart servers with ease.
-- **Background Execution**: Runs servers in detached `screen` sessions.
-- **Backups**: Create and restore world backups.
-- **Configuration**: Simple CLI for managing server properties and RAM allocation.
-- **TUI Dashboard**: Interactive dashboard for monitoring and control.
+MineManage makes it incredibly easy to create, manage, and monitor Minecraft servers right from your terminal. Whether you're a seasoned admin or just want to play with friends, MineManage handles the boring stuff so you can focus on the game.
 
-## Prerequisites
-- **Python 3.6+**
-- **Java** (JRE/JDK 17+ recommended for modern Minecraft versions)
-- **Screen** (`sudo apt install screen` on Linux, usually pre-installed on macOS)
+---
 
-## Installation
-1. Clone this repository:
-   ```bash
-   git clone https://github.com/YOUR_USERNAME/MineManage.git
-   cd MineManage
-   ```
-2. Make the script executable (optional):
-   ```bash
-   chmod +x manager.py
-   ```
+## ✨ Features
 
-## Usage
+- **🚀 Instant Setup**: Initialize a Vanilla, Paper, or Fabric server in seconds.
+- **🖥️ Interactive Dashboard**: A beautiful TUI to monitor stats, logs, and control your server.
+- **🔌 Mod & Plugin Manager**: Install mods and plugins directly from the command line.
+- **📦 Instance Management**: Switch between different server versions and modpacks effortlessly.
+- **🛡️ Automated Backups**: Keep your worlds safe with easy backup and restore commands.
+- **🌐 Network Tools**: View your IP, manage ports, and even attempt auto-port forwarding (UPnP).
+- **🐧 Linux Ready**: Optimized for both macOS and Linux environments.
 
-### Dashboard (Recommended)
-Launch the interactive TUI dashboard:
+## 📥 Installation
+
+Get up and running with a single command:
+
+```bash
+curl -O https://raw.githubusercontent.com/Lionportal1/minemanage/main/install.sh && sudo bash install.sh
+```
+
+*Note: Sudo access is required to install the global `minemanage` command.*
+
+## 🎮 Usage
+
+### The Dashboard (Recommended)
+
+The easiest way to use MineManage is through its interactive dashboard. Just run:
+
 ```bash
 minemanage dashboard
 ```
 
-### CLI Commands
-You can also run commands directly:
-- `minemanage init` - Initialize a new server.
-- `minemanage start` - Start the server.
-- `minemanage stop` - Stop the server.
-- `minemanage kill` - Force kill the server (requires admin password).
-- `minemanage console` - Attach to the server console.
-- `minemanage logs` - View live server logs.
-- `minemanage network info` - View IP and port information.
-- `minemanage instance create <name>` - Create a new server instance.
-- `minemanage backup` - Create a zip backup of the world.
-- `minemanage restore` - Restore a previous backup.
-- `minemanage config` - View or modify configuration.
+From here, you can start/stop the server, view live logs, manage plugins, and more—all with simple keyboard shortcuts!
 
-## Security Note
-The `config.json` file containing the admin password hash is **not** version controlled. You will need to set a new password on each new installation:
-```bash
-python3 manager.py config set-password
-```
+### CLI Commands
+
+Prefer the command line? We've got you covered:
+
+- `minemanage init` — Create a new server.
+- `minemanage start` — Launch the server in the background.
+- `minemanage stop` — Gracefully stop the server.
+- `minemanage console` — Jump into the server console.
+- `minemanage logs` — Watch the logs stream in real-time.
+- `minemanage network info` — Check your connection details.
+- `minemanage backup` — Save your world.
+
+## 🤝 Contributing
+
+We love contributions! If you have an idea for a new feature or found a bug, please open an issue or submit a pull request. Check out [CONTRIBUTING.md](CONTRIBUTING.md) for more details.
+
+## 📄 License
+
+This project is licensed under the [MIT License](LICENSE). Feel free to use, modify, and distribute it as you wish!
