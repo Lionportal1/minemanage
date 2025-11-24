@@ -34,8 +34,7 @@ fi
 echo -e "\n${YELLOW}Setting up MineManage...${NC}"
 
 # Configuration
-# TODO: Replace this with your actual raw file URL (e.g., GitHub raw)
-DOWNLOAD_URL="YOUR_REPO_RAW_URL/manager.py"
+DOWNLOAD_URL="https://raw.githubusercontent.com/Lionportal1/minemanage/main/manager.py"
 INSTALL_DIR="/usr/local/share/minemanage"
 SCRIPT_PATH="$INSTALL_DIR/manager.py"
 LINK_PATH="/usr/local/bin/minemanage"
