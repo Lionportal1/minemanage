@@ -28,53 +28,28 @@ A lightweight, Python-based CLI tool for managing local Minecraft servers.
 
 ## Usage
 
-### Initialization
-Initialize a new server (downloads the jar and accepts EULA):
+### Dashboard (Recommended)
+Launch the interactive TUI dashboard:
 ```bash
-python3 manager.py init --version 1.20.4 --type paper
+minemanage dashboard
 ```
 
-### Starting the Server
-Start with default settings (2G-4G RAM):
-```bash
-python3 manager.py start --detach
-```
-
-### Dashboard
-Open the interactive dashboard:
-```bash
-python3 manager.py dashboard
-```
-
-### Other Commands
-- `stop`: Gracefully stop the server.
-- `kill`: Force kill the server process (requires admin password).
-- `backup`: Create a zip backup of the world.
-- `restore`: Restore a previous backup.
-- `logs`: Stream the server logs.
-- `config`: View or modify configuration.
+### CLI Commands
+You can also run commands directly:
+- `minemanage init` - Initialize a new server.
+- `minemanage start` - Start the server.
+- `minemanage stop` - Stop the server.
+- `minemanage kill` - Force kill the server (requires admin password).
+- `minemanage console` - Attach to the server console.
+- `minemanage logs` - View live server logs.
+- `minemanage network info` - View IP and port information.
+- `minemanage instance create <name>` - Create a new server instance.
+- `minemanage backup` - Create a zip backup of the world.
+- `minemanage restore` - Restore a previous backup.
+- `minemanage config` - View or modify configuration.
 
 ## Security Note
 The `config.json` file containing the admin password hash is **not** version controlled. You will need to set a new password on each new installation:
 ```bash
 python3 manager.py config set-password
 ```
-
-## Building from Source
-To create a standalone executable:
-1. Install development dependencies:
-   ```bash
-   pip install -r requirements-dev.txt
-   ```
-2. Run the build script:
-   ```bash
-   ./build.sh
-   ```
-   The executable will be in `dist/minemanage`.
-
-## Versioning
-This project adheres to [Semantic Versioning](https://semver.org/).
-Current Version: **1.0.0**
-
-## License
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

@@ -1,26 +1,31 @@
+# MineManage Git Ignore
+
+# User Configuration
+config.json
+
+# Server Data (Heavy)
+instances/
+server/
+backups/
+
+# Logs
+*.log
+logs/
+
 # Python
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-env/
-venv/
+*.py[cod]
+*$py.class
 .env
+venv/
 .venv/
 
 # System
 .DS_Store
-.AppleDouble
-.LSOverride
+.idea/
+.vscode/
 
-# MineManage Runtime
-server/
-backups/
-logs/
-config.json
-
-# Build Artifacts
+# Build artifacts (if any)
 build/
 dist/
 *.spec
