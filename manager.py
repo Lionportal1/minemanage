@@ -101,6 +101,40 @@ def show_progress_manual(downloaded, total_size):
     sys.stdout.write(f"\r{output:<60}")
     sys.stdout.flush()
 
+# Helper Functions
+def hash_password(password):
+    """Hash a password using PBKDF2-HMAC-SHA256 with a random salt."""
+    salt = os.urandom(16)
+    # 100,000 iterations is a reasonable balance for 2024
+    pwd_hash = hashlib.pbkdf2_hmac('sha256', password.encode(), salt, 100000)
+    return f"{salt.hex()}${pwd_hash.hex()}"
+
+def verify_password(stored_password, provided_password):
+    """Verify a password against the stored hash (supports legacy SHA-256).
+
+    Returns:
+        - True if password matches (no action needed) [modern hash]
+        - False if password does not match.
+        - (True, new_hash) if password matches legacy SHA-256 hash; should upgrade to new_hash.
+    """
+    if "$" in stored_password:
+        salt_hex, hash_hex = stored_password.split("$")
+        salt = bytes.fromhex(salt_hex)
+        pwd_hash = hashlib.pbkdf2_hmac('sha256', provided_password.encode(), salt, 100000)
+        return pwd_hash.hex() == hash_hex
+    else:
+        # Legacy SHA-256 support; transparently upgrade the hash on successful login
+        print_warning("Legacy password hash detected. Your password hash will be upgraded for better security.")
+        # Add delay so brute-force attempts are computationally expensive
+        time.sleep(1)  # Artificial computational delay
+        if hashlib.sha256(provided_password.encode()).hexdigest() == stored_password:
+            # Create new PBKDF2 hash for this password
+            new_hash = hash_password(provided_password)
+            # Indicate caller should update the stored value to new_hash
+            return True, new_hash
+        else:
+            return False
+
 def get_instance_dir(instance_name=None):
     if instance_name:
         return os.path.join(INSTANCES_DIR, instance_name)
@@ -279,8 +313,11 @@ def print_error(msg):
 def print_info(msg):
     print(f"{Colors.BLUE}{msg}{Colors.ENDC}")
 
+def print_warning(msg):
+    print(f"{Colors.WARNING}{msg}{Colors.ENDC}")
+
 def print_header(msg):
-    print(f"{Colors.HEADER}{Colors.BOLD}{msg}{Colors.ENDC}")
+    print(f"\n{Colors.HEADER}{Colors.BOLD}{msg}{Colors.ENDC}")
 
 class SimpleCompleter:
     def __init__(self, options):
@@ -895,7 +932,7 @@ def cmd_kill(args):
     print(f"{Colors.WARNING}WARNING: This will instantly kill the server process. Data loss may occur.{Colors.ENDC}")
     password = getpass.getpass("Enter admin password: ")
     
-    if hashlib.sha256(password.encode()).hexdigest() != admin_hash:
+    if not verify_password(admin_hash, password):
         print_error("Incorrect password.")
         return
         
@@ -1063,7 +1100,7 @@ def cmd_config(args):
             print_error("Password cannot be empty.")
             return
             
-        config["admin_password_hash"] = hashlib.sha256(p1.encode()).hexdigest()
+        config["admin_password_hash"] = hash_password(p1)
         save_config(config)
         print_success("Admin password set.")
     elif args.action == "properties":
