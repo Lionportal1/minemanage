@@ -125,6 +125,8 @@ def verify_password(stored_password, provided_password):
     else:
         # Legacy SHA-256 support; transparently upgrade the hash on successful login
         print_warning("Legacy password hash detected. Your password hash will be upgraded for better security.")
+        # Add delay so brute-force attempts are computationally expensive
+        time.sleep(1)  # Artificial computational delay
         if hashlib.sha256(provided_password.encode()).hexdigest() == stored_password:
             # Create new PBKDF2 hash for this password
             new_hash = hash_password(provided_password)
