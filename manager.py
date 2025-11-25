@@ -18,6 +18,7 @@ import socket
 import struct
 import xml.etree.ElementTree as ET
 import readline
+import zipfile
 
 # Constants
 # Constants
@@ -429,6 +430,153 @@ def install_neoforge(instance_dir, mc_version):
     except Exception as e:
         print_error(f"Failed to install NeoForge: {e}")
         return False
+
+def install_mrpack(file_path):
+    """Install a Modrinth Modpack (.mrpack)."""
+    print_info(f"Importing modpack from {file_path}...")
+    
+    try:
+        with zipfile.ZipFile(file_path, 'r') as z:
+            # Check for modrinth.index.json
+            if "modrinth.index.json" not in z.namelist():
+                print_error("Invalid .mrpack file: modrinth.index.json not found.")
+                return False
+            
+            # Read index
+            with z.open("modrinth.index.json") as f:
+                index = json.load(f)
+            
+            pack_name = index.get("name", "Imported Modpack")
+            print_info(f"Found modpack: {pack_name}")
+            
+            # Extract dependencies
+            mc_version = index["dependencies"]["minecraft"]
+            loader = "vanilla"
+            loader_version = None
+            
+            if "fabric-loader" in index["dependencies"]:
+                loader = "fabric"
+                loader_version = index["dependencies"]["fabric-loader"]
+            elif "neoforge" in index["dependencies"]:
+                loader = "neoforge"
+                loader_version = index["dependencies"]["neoforge"]
+            elif "forge" in index["dependencies"]:
+                # We don't support forge yet, but let's try neoforge logic or fail
+                print_error("Forge is not fully supported yet. Attempting to use NeoForge logic...")
+                loader = "neoforge"
+                loader_version = index["dependencies"]["forge"]
+            
+            print_info(f"Target: Minecraft {mc_version} ({loader} {loader_version})")
+            
+            # Create Instance
+            # Sanitize name for directory
+            safe_name = "".join(c for c in pack_name if c.isalnum() or c in (' ', '_', '-')).strip().replace(" ", "_")
+            instance_dir = get_instance_dir(safe_name)
+            
+            if os.path.exists(instance_dir):
+                print_error(f"Instance '{safe_name}' already exists.")
+                confirm = input("Overwrite? [y/N]: ").lower()
+                if confirm != 'y':
+                    return False
+                shutil.rmtree(instance_dir)
+            
+            # Initialize instance
+            ensure_directories(instance_dir)
+            
+            # Save config
+            config = load_config(safe_name)
+            config["server_version"] = mc_version
+            config["server_type"] = loader
+            config["current_instance"] = safe_name
+            save_config(config, safe_name)
+            
+            # Install Loader/Server
+            args = argparse.Namespace(version=mc_version, type=loader, instance_name=safe_name)
+            # Reuse cmd_init logic partially or just call install functions directly
+            # cmd_init does a lot of setup, let's call the specific install functions
+            
+            jar_file = os.path.join(instance_dir, "server.jar")
+            eula_path = os.path.join(instance_dir, "eula.txt")
+            
+            # EULA
+            with open(eula_path, 'w') as f:
+                f.write("eula=true\n")
+            
+            if loader == "neoforge":
+                if not install_neoforge(instance_dir, mc_version): return False
+            elif loader == "fabric":
+                if not install_fabric(instance_dir, mc_version): return False
+            elif loader == "paper": # Unlikely for mrpack but possible
+                 # ... (Paper logic omitted for brevity, usually mrpacks are fabric/forge)
+                 pass
+            
+            # Download Mods
+            print_header("Downloading Mods...")
+            mods_dir = os.path.join(instance_dir, "mods")
+            os.makedirs(mods_dir, exist_ok=True)
+            
+            files = index.get("files", [])
+            total_files = len(files)
+            
+            for i, file_data in enumerate(files):
+                # Check environment
+                env = file_data.get("env", {})
+                if env.get("server") == "unsupported":
+                    continue # Skip client-only mods
+                
+                download_url = file_data["downloads"][0]
+                file_path = file_data["path"] # e.g. "mods/fabric-api.jar"
+                file_name = os.path.basename(file_path)
+                
+                # We flatten mods structure usually, but let's respect path if it's in subfolders?
+                # MineManage expects mods in 'mods/' root usually.
+                # Let's put them in mods/
+                dest_path = os.path.join(mods_dir, file_name)
+                
+                print(f"[{i+1}/{total_files}] Downloading {file_name}...")
+                try:
+                    download_file_with_progress(download_url, dest_path)
+                except Exception as e:
+                    print_error(f"Failed to download {file_name}: {e}")
+            
+            # Extract Overrides
+            # .mrpack can have an 'overrides' folder in the zip that needs to be copied to root
+            for item in z.namelist():
+                if item.startswith("overrides/"):
+                    # Extract stripping 'overrides/' prefix
+                    target_path = os.path.join(instance_dir, item[len("overrides/"):])
+                    if item.endswith("/"):
+                        os.makedirs(target_path, exist_ok=True)
+                    else:
+                        # Ensure parent dir exists
+                        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                        with z.open(item) as source, open(target_path, "wb") as dest:
+                            shutil.copyfileobj(source, dest)
+                            
+            print_success(f"Modpack '{pack_name}' imported successfully!")
+            print_info(f"Instance '{safe_name}' is now active.")
+            return True
+
+    except Exception as e:
+        print_error(f"Failed to import modpack: {e}")
+        return False
+
+def cmd_import(args):
+    if not args.file:
+        print_error("Usage: import <file.mrpack>")
+        return
+    
+    file_path = args.file
+    if not os.path.exists(file_path):
+        print_error(f"File not found: {file_path}")
+        return
+    
+    if not file_path.endswith(".mrpack"):
+        print_error("Only .mrpack files are supported currently.")
+        return
+        
+    install_mrpack(file_path)
+
 def cmd_init(args):
     # Support initializing a specific instance if provided
     target_instance = getattr(args, 'instance_name', None)
@@ -1602,6 +1750,7 @@ def dashboard_instance_manager():
         print("\nCommands:")
         print("[S]witch / List Instances")
         print("[C]reate New Instance")
+        print("[I]mport Modpack")
         print("[D]elete Instance")
         print("[B]ack to Main Menu")
         
@@ -1623,6 +1772,15 @@ def dashboard_instance_manager():
                     type=stype if stype else None
                 )
                 cmd_instance(args)
+                input("\nPress Enter to continue...")
+        elif choice == 'i':
+            path = input("Enter path to .mrpack file: ").strip()
+            if path:
+                # Remove quotes if user dragged file
+                path = path.strip("'").strip('"')
+                class Args:
+                    file = path
+                cmd_import(Args())
                 input("\nPress Enter to continue...")
         elif choice == 'd':
              # Reuse existing menu logic or just call cmd_instance
@@ -2415,6 +2573,11 @@ def main():
     # Logs command
     parser_logs = subparsers.add_parser("logs", help="View server logs")
 
+    # Import
+    parser_import = subparsers.add_parser("import", help="Import a modpack (.mrpack)")
+    parser_import.add_argument("file", help="Path to the .mrpack file")
+    parser_import.set_defaults(func=cmd_import)
+
     # Dashboard command
     parser_dashboard = subparsers.add_parser("dashboard", help="Open TUI dashboard")
 
@@ -2448,6 +2611,8 @@ def main():
         cmd_instance(args)
     elif args.command == "logs":
         cmd_logs(args)
+    elif args.command == "import":
+        cmd_import(args)
     elif args.command == "dashboard":
         cmd_dashboard(args)
     else:
