@@ -4,6 +4,8 @@
 config.json
 
 # Server Data (Heavy)
+*.zip
+*.mrpack
 instances/
 server/
 backups/
