@@ -812,10 +812,6 @@ def cmd_start(args):
     jar_path = os.path.join(server_dir, SERVER_JAR)
     eula_path = os.path.join(server_dir, EULA_FILE)
     
-    if not os.path.exists(jar_path):
-        print_error(f"Server jar not found at {jar_path}. Run 'init' first.")
-        return
-
     if not os.path.exists(eula_path):
         print_error("EULA not found. Run 'init' first.")
         return
@@ -839,31 +835,60 @@ def cmd_start(args):
 
     # Construct command
     launch_cmd = []
-    neoforge_args = None
     
     if config.get("server_type") == "neoforge":
-        # Look for unix_args.txt in libraries
-        # libraries/net/neoforged/neoforge/{version}/unix_args.txt
-        lib_path = os.path.join(server_dir, "libraries", "net", "neoforged", "neoforge")
-        if os.path.exists(lib_path):
-            # Find version dir
-            for d in os.listdir(lib_path):
-                args_file = os.path.join(lib_path, d, "unix_args.txt")
-                if os.path.exists(args_file):
-                    neoforge_args = args_file
-                    break
-    
-    if neoforge_args:
-        # NeoForge launch
-        launch_cmd = [
-            config.get("java_path", "java"),
-            f"-Xms{ram_min}",
-            f"-Xmx{ram_max}",
-            f"@{neoforge_args}",
-            "nogui"
-        ]
+        # NeoForge uses run.sh/run.bat and user_jvm_args.txt
+        run_script = "run.bat" if os.name == 'nt' else "run.sh"
+        run_path = os.path.join(server_dir, run_script)
+        
+        if not os.path.exists(run_path):
+             print_error(f"NeoForge run script not found at {run_path}. Run 'init' first.")
+             return
+
+        # Update user_jvm_args.txt with RAM settings
+        jvm_args_path = os.path.join(server_dir, "user_jvm_args.txt")
+        
+        # Read existing args to preserve other settings
+        existing_lines = []
+        if os.path.exists(jvm_args_path):
+            with open(jvm_args_path, 'r') as f:
+                existing_lines = f.readlines()
+        
+        # Filter out old memory settings
+        new_lines = [l for l in existing_lines if not l.strip().startswith("-Xms") and not l.strip().startswith("-Xmx")]
+        
+        # Append new memory settings
+        if new_lines and not new_lines[-1].endswith('\n'):
+            new_lines[-1] += '\n'
+        new_lines.append(f"-Xms{ram_min}\n")
+        new_lines.append(f"-Xmx{ram_max}\n")
+        
+        with open(jvm_args_path, 'w') as f:
+            f.writelines(new_lines)
+            
+        # Launch command is just the script
+        # For screen/subprocess, we execute the script directly
+        # Since we set cwd=server_dir, we should use the script name relative to it
+        # But for screen, we might need absolute path or ./
+        if args.detach:
+            # Screen needs to know what to run. 
+            # If we use cwd in subprocess, screen starts in that dir.
+            # So ./run.sh should work.
+            launch_cmd = [f"./{run_script}"]
+        else:
+            # Popen with cwd set
+            launch_cmd = [f"./{run_script}"]
+        
+        # Ensure it's executable
+        if os.name != 'nt':
+            os.chmod(run_path, 0o755)
+
     else:
-        # Standard launch
+        # Standard launch (Vanilla, Paper, Fabric)
+        if not os.path.exists(jar_path):
+            print_error(f"Server jar not found at {jar_path}. Run 'init' first.")
+            return
+
         launch_cmd = [
             config.get("java_path", "java"),
             f"-Xms{ram_min}",
