@@ -779,11 +779,16 @@ def install_server_core(instance_name, version, server_type):
 def cmd_init(args):
     # Support initializing a specific instance if provided
     target_instance = getattr(args, 'instance_name', None)
-    config = load_config(target_instance)
+    
+    if target_instance:
+        instance_name = target_instance
+    else:
+        # Load global config to find current instance
+        global_config = load_config()
+        instance_name = global_config.get("current_instance", "default")
     
     # Use get_instance_dir with the target instance
-    instance_dir = get_instance_dir(target_instance)
-    instance_name = target_instance if target_instance else "default"
+    instance_dir = get_instance_dir(instance_name)
     ensure_directories(instance_dir)
     
     # Load existing config or create new
