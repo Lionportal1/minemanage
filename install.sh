@@ -34,21 +34,17 @@ fi
 echo -e "\n${YELLOW}Setting up MineManage...${NC}"
 
 # Configuration
-DOWNLOAD_URL="https://raw.githubusercontent.com/Lionportal1/minemanage/main/manager.py"
-INSTALL_DIR="/usr/local/share/minemanage"
+# Use v1.1.0 tag for stability, or main for dev
+DOWNLOAD_URL="https://raw.githubusercontent.com/Lionportal1/minemanage/v1.1.0/manager.py"
+INSTALL_DIR="$HOME/.minemanage"
 SCRIPT_PATH="$INSTALL_DIR/manager.py"
-LINK_PATH="/usr/local/bin/minemanage"
+BIN_DIR="$HOME/.local/bin"
+WRAPPER_PATH="$BIN_DIR/minemanage"
 
 # Create Install Directory
 if [ ! -d "$INSTALL_DIR" ]; then
     echo -e "Creating install directory at $INSTALL_DIR..."
-    if [ -w "/usr/local/share" ]; then
-        mkdir -p "$INSTALL_DIR"
-    else
-        echo -e "${YELLOW}Sudo access required to create install directory.${NC}"
-        sudo mkdir -p "$INSTALL_DIR"
-        sudo chown $USER "$INSTALL_DIR"
-    fi
+    mkdir -p "$INSTALL_DIR"
 fi
 
 # Download manager.py
@@ -70,19 +66,24 @@ fi
 chmod +x "$SCRIPT_PATH"
 echo -e "Made manager.py executable."
 
-# Create Symlink
-echo -e "Creating symlink at $LINK_PATH..."
-if [ -w "/usr/local/bin" ]; then
-    ln -sf "$SCRIPT_PATH" "$LINK_PATH"
-else
-    echo -e "${YELLOW}Sudo access required to create symlink.${NC}"
-    sudo ln -sf "$SCRIPT_PATH" "$LINK_PATH"
+# Create Wrapper Script
+echo -e "Creating wrapper script at $WRAPPER_PATH..."
+mkdir -p "$BIN_DIR"
+
+cat > "$WRAPPER_PATH" <<EOF
+#!/bin/bash
+cd "$INSTALL_DIR"
+exec python3 manager.py "\$@"
+EOF
+
+chmod +x "$WRAPPER_PATH"
+
+# Check PATH
+if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
+    echo -e "\n${YELLOW}Warning: $BIN_DIR is not in your PATH.${NC}"
+    echo -e "Add the following line to your shell configuration (.bashrc, .zshrc, etc.):"
+    echo -e "  export PATH=\"\$HOME/.local/bin:\$PATH\""
 fi
 
-if [ $? -eq 0 ]; then
-    echo -e "\n${GREEN}Success! MineManage installed.${NC}"
-    echo -e "You can now run '${GREEN}minemanage dashboard${NC}' from anywhere."
-else
-    echo -e "\n${RED}Failed to create symlink.${NC}"
-    exit 1
-fi
+echo -e "\n${GREEN}Success! MineManage installed.${NC}"
+echo -e "You can now run '${GREEN}minemanage dashboard${NC}' from anywhere (after updating PATH)."
