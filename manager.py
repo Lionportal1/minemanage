@@ -110,16 +110,28 @@ def hash_password(password):
     return f"{salt.hex()}${pwd_hash.hex()}"
 
 def verify_password(stored_password, provided_password):
-    """Verify a password against the stored hash (supports legacy SHA-256)."""
+    """Verify a password against the stored hash (supports legacy SHA-256).
+
+    Returns:
+        - True if password matches (no action needed) [modern hash]
+        - False if password does not match.
+        - (True, new_hash) if password matches legacy SHA-256 hash; should upgrade to new_hash.
+    """
     if "$" in stored_password:
         salt_hex, hash_hex = stored_password.split("$")
         salt = bytes.fromhex(salt_hex)
         pwd_hash = hashlib.pbkdf2_hmac('sha256', provided_password.encode(), salt, 100000)
         return pwd_hash.hex() == hash_hex
     else:
-        # Legacy SHA-256 support
-        print_warning("Legacy password hash detected. Please reset your password for better security.")
-        return hashlib.sha256(provided_password.encode()).hexdigest() == stored_password
+        # Legacy SHA-256 support; transparently upgrade the hash on successful login
+        print_warning("Legacy password hash detected. Your password hash will be upgraded for better security.")
+        if hashlib.sha256(provided_password.encode()).hexdigest() == stored_password:
+            # Create new PBKDF2 hash for this password
+            new_hash = hash_password(provided_password)
+            # Indicate caller should update the stored value to new_hash
+            return True, new_hash
+        else:
+            return False
 
 def get_instance_dir(instance_name=None):
     if instance_name:
