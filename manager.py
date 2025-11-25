@@ -435,9 +435,11 @@ def install_neoforge(instance_dir, mc_version):
             root = ET.fromstring(xml_data)
             
             # Find latest version matching prefix
+            # Use strict matching (e.g. "21.1." to avoid matching "21.10")
             versions = []
+            strict_prefix = nf_prefix + "."
             for v in root.findall(".//version"):
-                if v.text.startswith(nf_prefix):
+                if v.text.startswith(strict_prefix):
                     versions.append(v.text)
             
             if not versions:
@@ -698,28 +700,10 @@ def cmd_modpacks(args):
         else:
             install_modpack_from_api(target)
 
-def cmd_init(args):
-    # Support initializing a specific instance if provided
-    target_instance = getattr(args, 'instance_name', None)
-    config = load_config(target_instance)
-    
-    # Use get_instance_dir with the target instance
-    instance_dir = get_instance_dir(target_instance)
-    instance_name = target_instance if target_instance else "default"
+def install_server_core(instance_name, version, server_type):
+    """Core logic to install server jar and dependencies."""
+    instance_dir = get_instance_dir(instance_name)
     ensure_directories(instance_dir)
-    
-    # Load existing config or create new
-    config = load_config(instance_name)
-    
-    # Determine version and type
-    version = args.version if args.version else config.get("server_version", "1.20.4")
-    server_type = args.type if args.type else config.get("server_type", "vanilla")
-    
-    # Save to config immediately
-    config["server_version"] = version
-    config["server_type"] = server_type
-    config["current_instance"] = instance_name # Set as current
-    save_config(config, instance_name)
     
     print_header(f"Initializing instance {Colors.BLUE}{instance_name}{Colors.ENDC} ({server_type} {version})...")
 
@@ -729,10 +713,10 @@ def cmd_init(args):
     
     if server_type == "neoforge":
         if not install_neoforge(instance_dir, version):
-            return
+            return False
     elif server_type == "fabric":
         if not install_fabric(instance_dir, version):
-            return
+            return False
     elif server_type == "paper":
         builds_url = f"https://api.papermc.io/v2/projects/paper/versions/{version}/builds"
         try:
@@ -747,33 +731,35 @@ def cmd_init(args):
                 download_file_with_progress(download_url, jar_file)
         except Exception as e:
             print_error(f"Failed to download Paper: {e}")
-            return
+            return False
         else:
-            # Vanilla
-            # We need to parse the version manifest to get the URL
-            # https://piston-meta.mojang.com/mc/game/version_manifest.json
-            try:
-                print_info(f"Fetching Vanilla version info for {version}...")
-                with urllib.request.urlopen("https://piston-meta.mojang.com/mc/game/version_manifest.json") as response:
-                    data = json.loads(response.read().decode())
-                    
-                version_url = None
-                for v in data['versions']:
-                    if v['id'] == version:
-                        version_url = v['url']
-                        break
+            pass # Success
+    else:
+        # Vanilla
+        # We need to parse the version manifest to get the URL
+        # https://piston-meta.mojang.com/mc/game/version_manifest.json
+        try:
+            print_info(f"Fetching Vanilla version info for {version}...")
+            with urllib.request.urlopen("https://piston-meta.mojang.com/mc/game/version_manifest.json") as response:
+                data = json.loads(response.read().decode())
                 
-                if not version_url:
-                    print_error(f"Version {version} not found.")
-                    return
-                    
-                with urllib.request.urlopen(version_url) as response:
-                    v_data = json.loads(response.read().decode())
-                    url = v_data['downloads']['server']['url']
-                    
-            except Exception as e:
-                print_error(f"Failed to get Vanilla version info: {e}")
-                return
+            version_url = None
+            for v in data['versions']:
+                if v['id'] == version:
+                    version_url = v['url']
+                    break
+            
+            if not version_url:
+                print_error(f"Version {version} not found.")
+                return False
+                
+            with urllib.request.urlopen(version_url) as response:
+                v_data = json.loads(response.read().decode())
+                url = v_data['downloads']['server']['url']
+                
+        except Exception as e:
+            print_error(f"Failed to get Vanilla version info: {e}")
+            return False
 
         print_info(f"Downloading server jar from {url}...")
         try:
@@ -784,7 +770,7 @@ def cmd_init(args):
             # Clean up partial file
             if os.path.exists(jar_file):
                 os.remove(jar_file)
-            return
+            return False
 
     # EULA
     if not os.path.exists(eula_path):
@@ -802,7 +788,39 @@ def cmd_init(args):
                 f.write("eula=true\n")
              print_success("EULA accepted.")
         else:
-            print_error("EULA not accepted. Server will not start.")
+            pass # Already accepted
+            
+    return True
+
+def cmd_init(args):
+    # Support initializing a specific instance if provided
+    target_instance = getattr(args, 'instance_name', None)
+    
+    if target_instance:
+        instance_name = target_instance
+    else:
+        # Load global config to find current instance
+        global_config = load_config()
+        instance_name = global_config.get("current_instance", "default")
+    
+    # Use get_instance_dir with the target instance
+    instance_dir = get_instance_dir(instance_name)
+    ensure_directories(instance_dir)
+    
+    # Load existing config or create new
+    config = load_config(instance_name)
+    
+    # Determine version and type
+    version = args.version if args.version else config.get("server_version", "1.20.4")
+    server_type = args.type if args.type else config.get("server_type", "vanilla")
+    
+    # Save to config immediately
+    config["server_version"] = version
+    config["server_type"] = server_type
+    config["current_instance"] = instance_name # Set as current
+    save_config(config, instance_name)
+    
+    install_server_core(instance_name, version, server_type)
 
 def cmd_start(args):
     config = load_config()
@@ -810,10 +828,6 @@ def cmd_start(args):
     jar_path = os.path.join(server_dir, SERVER_JAR)
     eula_path = os.path.join(server_dir, EULA_FILE)
     
-    if not os.path.exists(jar_path):
-        print_error(f"Server jar not found at {jar_path}. Run 'init' first.")
-        return
-
     if not os.path.exists(eula_path):
         print_error("EULA not found. Run 'init' first.")
         return
@@ -837,31 +851,60 @@ def cmd_start(args):
 
     # Construct command
     launch_cmd = []
-    neoforge_args = None
     
     if config.get("server_type") == "neoforge":
-        # Look for unix_args.txt in libraries
-        # libraries/net/neoforged/neoforge/{version}/unix_args.txt
-        lib_path = os.path.join(server_dir, "libraries", "net", "neoforged", "neoforge")
-        if os.path.exists(lib_path):
-            # Find version dir
-            for d in os.listdir(lib_path):
-                args_file = os.path.join(lib_path, d, "unix_args.txt")
-                if os.path.exists(args_file):
-                    neoforge_args = args_file
-                    break
-    
-    if neoforge_args:
-        # NeoForge launch
-        launch_cmd = [
-            config.get("java_path", "java"),
-            f"-Xms{ram_min}",
-            f"-Xmx{ram_max}",
-            f"@{neoforge_args}",
-            "nogui"
-        ]
+        # NeoForge uses run.sh/run.bat and user_jvm_args.txt
+        run_script = "run.bat" if os.name == 'nt' else "run.sh"
+        run_path = os.path.join(server_dir, run_script)
+        
+        if not os.path.exists(run_path):
+             print_error(f"NeoForge run script not found at {run_path}. Run 'init' first.")
+             return
+
+        # Update user_jvm_args.txt with RAM settings
+        jvm_args_path = os.path.join(server_dir, "user_jvm_args.txt")
+        
+        # Read existing args to preserve other settings
+        existing_lines = []
+        if os.path.exists(jvm_args_path):
+            with open(jvm_args_path, 'r') as f:
+                existing_lines = f.readlines()
+        
+        # Filter out old memory settings
+        new_lines = [l for l in existing_lines if not l.strip().startswith("-Xms") and not l.strip().startswith("-Xmx")]
+        
+        # Append new memory settings
+        if new_lines and not new_lines[-1].endswith('\n'):
+            new_lines[-1] += '\n'
+        new_lines.append(f"-Xms{ram_min}\n")
+        new_lines.append(f"-Xmx{ram_max}\n")
+        
+        with open(jvm_args_path, 'w') as f:
+            f.writelines(new_lines)
+            
+        # Launch command is just the script
+        # For screen/subprocess, we execute the script directly
+        # Since we set cwd=server_dir, we should use the script name relative to it
+        # But for screen, we might need absolute path or ./
+        if args.detach:
+            # Screen needs to know what to run. 
+            # If we use cwd in subprocess, screen starts in that dir.
+            # So ./run.sh should work.
+            launch_cmd = [f"./{run_script}"]
+        else:
+            # Popen with cwd set
+            launch_cmd = [f"./{run_script}"]
+        
+        # Ensure it's executable
+        if os.name != 'nt':
+            os.chmod(run_path, 0o755)
+
     else:
-        # Standard launch
+        # Standard launch (Vanilla, Paper, Fabric)
+        if not os.path.exists(jar_path):
+            print_error(f"Server jar not found at {jar_path}. Run 'init' first.")
+            return
+
         launch_cmd = [
             config.get("java_path", "java"),
             f"-Xms{ram_min}",
@@ -1763,6 +1806,7 @@ def dashboard_server_control():
         print("[K]ill (Force)")
         print("[C]onsole")
         print("[L]ogs")
+        print("[I]nitialize/Re-install Server")
         print("[B]ack to Main Menu")
         
         choice = input("\nEnter command: ").lower()
@@ -1804,6 +1848,26 @@ def dashboard_server_control():
             cmd_console(None)
         elif choice == 'l':
             cmd_logs(None)
+            input("\nPress Enter to continue...")
+        elif choice == 'i':
+            # Re-Initialize
+            config = load_config()
+            current = config.get("current_instance", "default")
+            version = config.get("server_version", "unknown")
+            stype = config.get("server_type", "unknown")
+            
+            print_header(f"Re-Initialize Instance: {current}")
+            print(f"Target: {stype} {version}")
+            print(f"{Colors.WARNING}Warning: This will re-download server.jar and overwrite eula.txt.{Colors.ENDC}")
+            
+            confirm = input("Are you sure? [y/N]: ").lower()
+            if confirm == 'y':
+                if install_server_core(current, version, stype):
+                    print_success("\nRe-initialization complete.")
+                else:
+                    print_error("\nRe-initialization failed.")
+            else:
+                print("Cancelled.")
             input("\nPress Enter to continue...")
         elif choice == 'b':
             break
