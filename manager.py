@@ -561,21 +561,105 @@ def install_mrpack(file_path):
         print_error(f"Failed to import modpack: {e}")
         return False
 
-def cmd_import(args):
-    if not args.file:
-        print_error("Usage: import <file.mrpack>")
-        return
+def install_modpack_from_api(slug_or_id):
+    """Install a modpack from Modrinth API."""
+    print_info(f"Fetching modpack info for '{slug_or_id}'...")
     
-    file_path = args.file
-    if not os.path.exists(file_path):
-        print_error(f"File not found: {file_path}")
-        return
-    
-    if not file_path.endswith(".mrpack"):
-        print_error("Only .mrpack files are supported currently.")
-        return
+    try:
+        # Get Project
+        url = f"https://api.modrinth.com/v2/project/{slug_or_id}"
+        req = urllib.request.Request(url)
+        req.add_header("User-Agent", "MineManage/1.0 (launcher)")
         
-    install_mrpack(file_path)
+        with urllib.request.urlopen(req) as response:
+            project = json.load(response)
+            
+        print_info(f"Found project: {project['title']}")
+        
+        # Get Versions
+        # We want the latest version compatible with any loader we support
+        # But modpacks usually define the loader. So let's just get the latest version.
+        versions_url = f"https://api.modrinth.com/v2/project/{slug_or_id}/version"
+        req = urllib.request.Request(versions_url)
+        req.add_header("User-Agent", "MineManage/1.0 (launcher)")
+        
+        with urllib.request.urlopen(req) as response:
+            versions = json.load(response)
+            
+        if not versions:
+            print_error("No versions found for this modpack.")
+            return
+            
+        # Find a version with a .mrpack file
+        target_version = None
+        target_file = None
+        
+        for v in versions:
+            for f in v['files']:
+                if f['filename'].endswith('.mrpack'):
+                    target_version = v
+                    target_file = f
+                    break
+            if target_version:
+                break
+                
+        if not target_version:
+            print_error("No .mrpack file found in recent versions.")
+            return
+            
+        print_info(f"Selected version: {target_version['name']} ({target_version['version_number']})")
+        
+        # Download
+        download_url = target_file['url']
+        filename = target_file['filename']
+        print_info(f"Downloading {filename}...")
+        
+        download_file_with_progress(download_url, filename)
+        
+        # Install
+        if install_mrpack(filename):
+            # Clean up
+            os.remove(filename)
+        
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            print_error("Modpack not found.")
+        else:
+            print_error(f"API Error: {e}")
+    except Exception as e:
+        print_error(f"Failed to install modpack: {e}")
+
+def cmd_modpacks(args):
+    if args.action == "search":
+        if not args.target:
+            print_error("Usage: modpacks search <query>")
+            return
+        
+        print_info(f"Searching for modpacks matching '{args.target}'...")
+        hits = search_modrinth(args.target, "", [], project_type="modpack")
+        
+        if not hits:
+            print_info("No results found.")
+            return
+            
+        print_header(f"Found {len(hits)} modpacks:")
+        for hit in hits:
+            print(f"• {Colors.GREEN}{hit['title']}{Colors.ENDC} (Slug: {hit['slug']})")
+            print(f"  {hit['description'][:60]}...")
+            
+    elif args.action == "install":
+        if not args.target:
+            print_error("Usage: modpacks install <slug|file.mrpack>")
+            return
+            
+        target = args.target
+        if target.endswith(".mrpack"):
+            if not os.path.exists(target):
+                print_error(f"File not found: {target}")
+                return
+            install_mrpack(target)
+        else:
+            install_modpack_from_api(target)
 
 def cmd_init(args):
     # Support initializing a specific instance if provided
@@ -1750,7 +1834,7 @@ def dashboard_instance_manager():
         print("\nCommands:")
         print("[S]witch / List Instances")
         print("[C]reate New Instance")
-        print("[I]mport Modpack")
+        print("[M]odpacks (Search/Import)")
         print("[D]elete Instance")
         print("[B]ack to Main Menu")
         
@@ -1773,15 +1857,30 @@ def dashboard_instance_manager():
                 )
                 cmd_instance(args)
                 input("\nPress Enter to continue...")
-        elif choice == 'i':
-            path = input("Enter path to .mrpack file: ").strip()
-            if path:
-                # Remove quotes if user dragged file
-                path = path.strip("'").strip('"')
-                class Args:
-                    file = path
-                cmd_import(Args())
-                input("\nPress Enter to continue...")
+        elif choice == 'm':
+            print("\nModpack Options:")
+            print("1. Search Modrinth")
+            print("2. Install from File (.mrpack)")
+            sub = input("Select option: ")
+            
+            if sub == '1':
+                query = input("Search query: ").strip()
+                if query:
+                    args = argparse.Namespace(action="search", target=query)
+                    cmd_modpacks(args)
+                    
+                    slug = input("\nEnter slug to install (or Enter to cancel): ").strip()
+                    if slug:
+                        args = argparse.Namespace(action="install", target=slug)
+                        cmd_modpacks(args)
+                        input("\nPress Enter to continue...")
+            elif sub == '2':
+                path = input("Enter path to .mrpack file: ").strip()
+                if path:
+                    path = path.strip("'").strip('"')
+                    args = argparse.Namespace(action="install", target=path)
+                    cmd_modpacks(args)
+                    input("\nPress Enter to continue...")
         elif choice == 'd':
              # Reuse existing menu logic or just call cmd_instance
              # dashboard_instances_menu has 'd' option
@@ -1980,9 +2079,11 @@ def search_modrinth(query, version, loaders, project_type="mod"):
         loader_facet = [f"categories:{l}" for l in loaders]
         
         facets_list = [
-            [f"versions:{version}"],
             [f"project_type:{project_type}"]
         ]
+        
+        if version:
+            facets_list.append([f"versions:{version}"])
         
         if loader_facet:
             facets_list.append(loader_facet)
@@ -2573,10 +2674,11 @@ def main():
     # Logs command
     parser_logs = subparsers.add_parser("logs", help="View server logs")
 
-    # Import
-    parser_import = subparsers.add_parser("import", help="Import a modpack (.mrpack)")
-    parser_import.add_argument("file", help="Path to the .mrpack file")
-    parser_import.set_defaults(func=cmd_import)
+    # Modpacks
+    parser_modpacks = subparsers.add_parser("modpacks", help="Manage modpacks")
+    parser_modpacks.add_argument("action", choices=["search", "install"], help="Action to perform")
+    parser_modpacks.add_argument("target", nargs="?", help="Search query, Slug, or .mrpack file")
+    parser_modpacks.set_defaults(func=cmd_modpacks)
 
     # Dashboard command
     parser_dashboard = subparsers.add_parser("dashboard", help="Open TUI dashboard")
@@ -2611,8 +2713,8 @@ def main():
         cmd_instance(args)
     elif args.command == "logs":
         cmd_logs(args)
-    elif args.command == "import":
-        cmd_import(args)
+    elif args.command == "modpacks":
+        cmd_modpacks(args)
     elif args.command == "dashboard":
         cmd_dashboard(args)
     else:
