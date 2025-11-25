@@ -81,8 +81,16 @@ chmod +x "$WRAPPER_PATH"
 # Check PATH
 if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
     echo -e "\n${YELLOW}Warning: $BIN_DIR is not in your PATH.${NC}"
-    echo -e "Add the following line to your shell configuration (.bashrc, .zshrc, etc.):"
-    echo -e "  export PATH=\"\$HOME/.local/bin:\$PATH\""
+    
+    SHELL_CFG=""
+    case "$SHELL" in
+        */zsh) SHELL_CFG="$HOME/.zshrc" ;;
+        */bash) SHELL_CFG="$HOME/.bashrc" ;;
+        *) SHELL_CFG="$HOME/.bashrc" ;; # Default
+    esac
+
+    echo -e "Run this command to add it to your path:"
+    echo -e "${GREEN}echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> $SHELL_CFG && source $SHELL_CFG${NC}"
 fi
 
 echo -e "\n${GREEN}Success! MineManage installed.${NC}"
