@@ -34,8 +34,8 @@ fi
 echo -e "\n${YELLOW}Setting up MineManage...${NC}"
 
 # Configuration
-# Use v1.1.0 tag for stability, or main for dev
-DOWNLOAD_URL="https://raw.githubusercontent.com/Lionportal1/minemanage/v1.1.0/manager.py"
+# Use v1.2 tag for stability, or main for dev
+DOWNLOAD_URL="https://raw.githubusercontent.com/Lionportal1/minemanage/v1.2/manager.py"
 INSTALL_DIR="$HOME/.minemanage"
 SCRIPT_PATH="$INSTALL_DIR/manager.py"
 BIN_DIR="$HOME/.local/bin"
