@@ -8,9 +8,9 @@ MineManage makes it incredibly easy to create, manage, and monitor Minecraft ser
 
 ## ✨ Features
 
-- **🚀 Instant Setup**: Initialize a Vanilla, Paper, or Fabric server in seconds.
-- **🖥️ Interactive Dashboard**: A beautiful TUI to monitor stats, logs, and control your server.
-- **🔌 Mod & Plugin Manager**: Install mods and plugins directly from the command line.
+- **🚀 Instant Setup**: Initialize a Vanilla, Paper, Fabric, or **NeoForge** server in seconds.
+- **🖥️ Interactive Dashboard 2.0**: A redesigned TUI with categorized menus (Control, Content, Config, Instances, Network) and **Global Tab Autocompletion**.
+- **🔌 Mod & Plugin Manager**: Search and install mods and plugins directly from **Modrinth** via the CLI.
 - **📦 Instance Management**: Switch between different server versions and modpacks effortlessly.
 - **🛡️ Automated Backups**: Keep your worlds safe with easy backup and restore commands.
 - **🌐 Network Tools**: View your IP, manage ports, and even attempt auto-port forwarding (UPnP).
@@ -22,7 +22,7 @@ MineManage makes it incredibly easy to create, manage, and monitor Minecraft ser
 Get up and running with a single command:
 
 ```bash
-curl -O https://raw.githubusercontent.com/Lionportal1/minemanage/main/install.sh && sudo bash install.sh
+curl -O https://raw.githubusercontent.com/Lionportal1/minemanage/v1.1.0/install.sh && sudo bash install.sh
 ```
 
 ### Option 2: GitHub Releases
