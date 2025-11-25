@@ -684,6 +684,98 @@ def cmd_modpacks(args):
         else:
             install_modpack_from_api(target)
 
+def install_server_core(instance_name, version, server_type):
+    """Core logic to install server jar and dependencies."""
+    instance_dir = get_instance_dir(instance_name)
+    ensure_directories(instance_dir)
+    
+    print_header(f"Initializing instance {Colors.BLUE}{instance_name}{Colors.ENDC} ({server_type} {version})...")
+
+    # Check if server jar exists
+    jar_file = os.path.join(instance_dir, "server.jar")
+    eula_path = os.path.join(instance_dir, "eula.txt")
+    
+    if server_type == "neoforge":
+        if not install_neoforge(instance_dir, version):
+            return False
+    elif server_type == "fabric":
+        if not install_fabric(instance_dir, version):
+            return False
+    elif server_type == "paper":
+        builds_url = f"https://api.papermc.io/v2/projects/paper/versions/{version}/builds"
+        try:
+            with urllib.request.urlopen(builds_url) as response:
+                data = json.loads(response.read().decode())
+                latest_build = data["builds"][-1]["build"]
+                download = data["builds"][-1]["downloads"]["application"]["name"]
+                
+                download_url = f"https://api.papermc.io/v2/projects/paper/versions/{version}/builds/{latest_build}/downloads/{download}"
+                
+                print_info(f"Downloading Paper {version} build {latest_build}...")
+                download_file_with_progress(download_url, jar_file)
+        except Exception as e:
+            print_error(f"Failed to download Paper: {e}")
+            return False
+        else:
+            pass # Success
+    else:
+        # Vanilla
+        # We need to parse the version manifest to get the URL
+        # https://piston-meta.mojang.com/mc/game/version_manifest.json
+        try:
+            print_info(f"Fetching Vanilla version info for {version}...")
+            with urllib.request.urlopen("https://piston-meta.mojang.com/mc/game/version_manifest.json") as response:
+                data = json.loads(response.read().decode())
+                
+            version_url = None
+            for v in data['versions']:
+                if v['id'] == version:
+                    version_url = v['url']
+                    break
+            
+            if not version_url:
+                print_error(f"Version {version} not found.")
+                return False
+                
+            with urllib.request.urlopen(version_url) as response:
+                v_data = json.loads(response.read().decode())
+                url = v_data['downloads']['server']['url']
+                
+        except Exception as e:
+            print_error(f"Failed to get Vanilla version info: {e}")
+            return False
+
+        print_info(f"Downloading server jar from {url}...")
+        try:
+            download_file_with_progress(url, jar_file)
+            print_success("Download complete.")
+        except Exception as e:
+            print_error(f"Download failed: {e}")
+            # Clean up partial file
+            if os.path.exists(jar_file):
+                os.remove(jar_file)
+            return False
+
+    # EULA
+    if not os.path.exists(eula_path):
+        print_info("Creating eula.txt...")
+        with open(eula_path, 'w') as f:
+            f.write("eula=true\n")
+        print_success("EULA accepted (eula=true).")
+    else:
+        # Check if accepted
+        with open(eula_path, 'r') as f:
+            content = f.read()
+        if "eula=true" not in content:
+             print_info("Updating eula.txt to true...")
+             with open(eula_path, 'w') as f:
+                f.write("eula=true\n")
+             print_success("EULA accepted.")
+        else:
+            pass # Already accepted
+            
+    return True
+
 def cmd_init(args):
     # Support initializing a specific instance if provided
     target_instance = getattr(args, 'instance_name', None)
@@ -707,93 +799,11 @@ def cmd_init(args):
     config["current_instance"] = instance_name # Set as current
     save_config(config, instance_name)
     
-    print_header(f"Initializing instance {Colors.BLUE}{instance_name}{Colors.ENDC} ({server_type} {version})...")
-
-    # Check if server jar exists
-    jar_file = os.path.join(instance_dir, "server.jar")
-    eula_path = os.path.join(instance_dir, "eula.txt")
-    
-    if server_type == "neoforge":
-        if not install_neoforge(instance_dir, version):
-            return
-    elif server_type == "fabric":
-        if not install_fabric(instance_dir, version):
-            return
-    elif server_type == "paper":
-        builds_url = f"https://api.papermc.io/v2/projects/paper/versions/{version}/builds"
-        try:
-            with urllib.request.urlopen(builds_url) as response:
-                data = json.loads(response.read().decode())
-                latest_build = data["builds"][-1]["build"]
-                download = data["builds"][-1]["downloads"]["application"]["name"]
-                
-                download_url = f"https://api.papermc.io/v2/projects/paper/versions/{version}/builds/{latest_build}/downloads/{download}"
-                
-                print_info(f"Downloading Paper {version} build {latest_build}...")
-                download_file_with_progress(download_url, jar_file)
-        except Exception as e:
-            print_error(f"Failed to download Paper: {e}")
-            return
-        else:
-            # Vanilla
-            # We need to parse the version manifest to get the URL
-            # https://piston-meta.mojang.com/mc/game/version_manifest.json
-            try:
-                print_info(f"Fetching Vanilla version info for {version}...")
-                with urllib.request.urlopen("https://piston-meta.mojang.com/mc/game/version_manifest.json") as response:
-                    data = json.loads(response.read().decode())
-                    
-                version_url = None
-                for v in data['versions']:
-                    if v['id'] == version:
-                        version_url = v['url']
-                        break
-                
-                if not version_url:
-                    print_error(f"Version {version} not found.")
-                    return
-                    
-                with urllib.request.urlopen(version_url) as response:
-                    v_data = json.loads(response.read().decode())
-                    url = v_data['downloads']['server']['url']
-                    
-            except Exception as e:
-                print_error(f"Failed to get Vanilla version info: {e}")
-                return
-
-        print_info(f"Downloading server jar from {url}...")
-        try:
-            download_file_with_progress(url, jar_file)
-            print_success("Download complete.")
-        except Exception as e:
-            print_error(f"Download failed: {e}")
-            # Clean up partial file
-            if os.path.exists(jar_file):
-                os.remove(jar_file)
-            return
-
-    # EULA
-    if not os.path.exists(eula_path):
-        print_info("Creating eula.txt...")
-        with open(eula_path, 'w') as f:
-            f.write("eula=true\n")
-        print_success("EULA accepted (eula=true).")
-    else:
-        # Check if accepted
-        with open(eula_path, 'r') as f:
-            content = f.read()
-        if "eula=true" not in content:
-             print_info("Updating eula.txt to true...")
-             with open(eula_path, 'w') as f:
-                f.write("eula=true\n")
-             print_success("EULA accepted.")
-        else:
-            print_error("EULA not accepted. Server will not start.")
+    install_server_core(instance_name, version, server_type)
 
 def cmd_start(args):
     config = load_config()
     server_dir = get_instance_dir()
-    jar_path = os.path.join(server_dir, SERVER_JAR)
     eula_path = os.path.join(server_dir, EULA_FILE)
     
     if not os.path.exists(jar_path):
@@ -1803,6 +1813,7 @@ def dashboard_content_management():
         print("[P]lugins")
         print("[B]ackups")
         print("[R]estore Backup")
+        print("[I]nitialize/Re-install Server")
         print("[Back] to Main Menu")
         
         choice = input("\nEnter command: ").lower()
@@ -1816,6 +1827,26 @@ def dashboard_content_management():
             input("\nPress Enter to continue...")
         elif choice == 'r':
             cmd_restore(None)
+            input("\nPress Enter to continue...")
+        elif choice == 'i':
+            # Re-Initialize
+            config = load_config()
+            current = config.get("current_instance", "default")
+            version = config.get("server_version", "unknown")
+            stype = config.get("server_type", "unknown")
+            
+            print_header(f"Re-Initialize Instance: {current}")
+            print(f"Target: {stype} {version}")
+            print(f"{Colors.WARNING}Warning: This will re-download server.jar and overwrite eula.txt.{Colors.ENDC}")
+            
+            confirm = input("Are you sure? [y/N]: ").lower()
+            if confirm == 'y':
+                if install_server_core(current, version, stype):
+                    print_success("\nRe-initialization complete.")
+                else:
+                    print_error("\nRe-initialization failed.")
+            else:
+                print("Cancelled.")
             input("\nPress Enter to continue...")
         elif choice == 'back':
             break
