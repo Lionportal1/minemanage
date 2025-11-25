@@ -421,9 +421,11 @@ def install_neoforge(instance_dir, mc_version):
             root = ET.fromstring(xml_data)
             
             # Find latest version matching prefix
+            # Use strict matching (e.g. "21.1." to avoid matching "21.10")
             versions = []
+            strict_prefix = nf_prefix + "."
             for v in root.findall(".//version"):
-                if v.text.startswith(nf_prefix):
+                if v.text.startswith(strict_prefix):
                     versions.append(v.text)
             
             if not versions:
