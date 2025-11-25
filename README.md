@@ -18,11 +18,17 @@ MineManage makes it incredibly easy to create, manage, and monitor Minecraft ser
 
 ## 📥 Installation
 
+### Option 1: Quick Install (Recommended)
 Get up and running with a single command:
 
 ```bash
 curl -O https://raw.githubusercontent.com/Lionportal1/minemanage/main/install.sh && sudo bash install.sh
 ```
+
+### Option 2: GitHub Releases
+You can also download the latest release from the [Releases Page](https://github.com/Lionportal1/minemanage/releases).
+1. Download `install.sh` from the latest release.
+2. Run `sudo bash install.sh`.
 
 *Note: Sudo access is required to install the global `minemanage` command.*
 

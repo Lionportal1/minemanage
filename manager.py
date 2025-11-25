@@ -6,6 +6,7 @@ import sys
 import subprocess
 import urllib.request
 import urllib.error
+import urllib.parse
 from pathlib import Path
 
 import shutil
@@ -15,6 +16,8 @@ import hashlib
 import getpass
 import socket
 import struct
+import xml.etree.ElementTree as ET
+import readline
 
 # Constants
 # Constants
@@ -184,24 +187,21 @@ def load_config(instance_name=None):
     g_cfg.update(i_cfg)
     return g_cfg
 
-def save_config(config):
+def save_config(config, instance_name=None):
     g_keys = ["java_path", "current_instance", "admin_password_hash"]
     g_cfg = {k: config[k] for k in g_keys if k in config}
     save_global_config(g_cfg)
     
     i_keys = ["ram_min", "ram_max", "server_type", "server_version"]
     i_cfg = {k: config[k] for k in i_keys if k in config}
-    save_instance_config(i_cfg)
+    save_instance_config(i_cfg, instance_name)
 
-def ensure_directories():
-    Path(get_instance_dir()).mkdir(parents=True, exist_ok=True)
+def ensure_directories(instance_dir=None):
+    if instance_dir is None:
+        instance_dir = get_instance_dir()
+    Path(instance_dir).mkdir(parents=True, exist_ok=True)
     Path(BACKUP_DIR).mkdir(exist_ok=True)
-    # Logs dir is usually inside server dir, but if we used a global LOGS_DIR before,
-    # we should probably stick to server/logs. 
-    # The previous code had LOGS_DIR = "logs" but used os.path.join(SERVER_DIR, "logs") in cmd_logs.
-    # So the global LOGS_DIR constant was maybe unused or used for global logs?
-    # Let's just ensure the instance logs dir exists.
-    Path(os.path.join(get_instance_dir(), "logs")).mkdir(parents=True, exist_ok=True)
+    Path(os.path.join(instance_dir, "logs")).mkdir(parents=True, exist_ok=True)
 
 def get_screen_name():
     config = get_global_config()
@@ -281,6 +281,39 @@ def print_info(msg):
 def print_header(msg):
     print(f"{Colors.HEADER}{Colors.BOLD}{msg}{Colors.ENDC}")
 
+class SimpleCompleter:
+    def __init__(self, options):
+        self.options = sorted(options)
+        
+    def complete(self, text, state):
+        if state == 0:
+            if text:
+                self.matches = [s for s in self.options if s.startswith(text)]
+            else:
+                self.matches = self.options[:]
+        
+        try:
+            return self.matches[state]
+        except IndexError:
+            return None
+
+def input_with_completion(prompt, options):
+    """Get input with tab completion enabled for the given options."""
+    completer = SimpleCompleter(options)
+    readline.set_completer(completer.complete)
+    
+    # Enable tab completion
+    if 'libedit' in readline.__doc__:
+        readline.parse_and_bind("bind ^I rl_complete")
+    else:
+        readline.parse_and_bind("tab: complete")
+        
+    try:
+        return input(prompt)
+    finally:
+        # Clear completer
+        readline.set_completer(None)
+
 def get_paper_url(version):
     # PaperMC API: https://api.papermc.io/v2/projects/paper/versions/{version}/builds
     # We need to find the latest build.
@@ -311,7 +344,91 @@ def get_paper_url(version):
     except Exception as e:
         print_error(f"Error: {e}")
         return None
+def install_fabric(instance_dir, version):
+    """Download and install Fabric."""
+    print_info(f"Fetching Fabric info for Minecraft {version}...")
+    try:
+        # Get loader version
+        with urllib.request.urlopen(f"https://meta.fabricmc.net/v2/versions/loader/{version}") as response:
+            data = json.loads(response.read().decode())
+            if not data:
+                print_error(f"No Fabric loader found for version {version}.")
+                return False
+            loader_version = data[0]['loader']['version']
+        
+        # Get installer version
+        with urllib.request.urlopen("https://meta.fabricmc.net/v2/versions/installer") as response:
+            data = json.loads(response.read().decode())
+            installer_version = data[0]['version']
 
+        # Construct download URL
+        # https://meta.fabricmc.net/v2/versions/loader/{game_version}/{loader_version}/{installer_version}/server/jar
+        url = f"https://meta.fabricmc.net/v2/versions/loader/{version}/{loader_version}/{installer_version}/server/jar"
+        
+        jar_path = os.path.join(instance_dir, "server.jar")
+        print_info(f"Downloading Fabric server jar from {url}...")
+        download_file_with_progress(url, jar_path)
+        return True
+            
+    except Exception as e:
+        print_error(f"Failed to install Fabric: {e}")
+        return False
+
+def install_neoforge(instance_dir, mc_version):
+    """Download and install NeoForge."""
+    print_info(f"Fetching NeoForge version for Minecraft {mc_version}...")
+    try:
+        # NeoForge versions usually start with the MC minor version (e.g. 20.4 for 1.20.4)
+        # We need to map 1.20.4 -> 20.4
+        parts = mc_version.split('.')
+        if len(parts) < 2:
+            print_error("Invalid Minecraft version format.")
+            return False
+            
+        # NeoForge version prefix: "20.4"
+        nf_prefix = f"{parts[1]}.{parts[2] if len(parts) > 2 else '0'}"
+        
+        metadata_url = "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml"
+        req = urllib.request.Request(metadata_url)
+        req.add_header("User-Agent", "MineManage/1.0")
+        
+        with urllib.request.urlopen(req) as response:
+            xml_data = response.read()
+            root = ET.fromstring(xml_data)
+            
+            # Find latest version matching prefix
+            versions = []
+            for v in root.findall(".//version"):
+                if v.text.startswith(nf_prefix):
+                    versions.append(v.text)
+            
+            if not versions:
+                print_error(f"No NeoForge version found for Minecraft {mc_version}")
+                return False
+                
+            # Sort versions? They are usually sorted in metadata, but let's take the last one (latest)
+            latest_version = versions[-1]
+            print_info(f"Selected NeoForge version: {latest_version}")
+            
+            installer_url = f"https://maven.neoforged.net/releases/net/neoforged/neoforge/{latest_version}/neoforge-{latest_version}-installer.jar"
+            installer_path = os.path.join(instance_dir, "installer.jar")
+            
+            print_info(f"Downloading installer from {installer_url}...")
+            download_file_with_progress(installer_url, installer_path)
+            
+            print_info("Running NeoForge installer (this may take a while)...")
+            # Run installer: java -jar installer.jar --installServer
+            # We are in instance_dir, so just use filename
+            subprocess.check_call(["java", "-jar", "installer.jar", "--installServer"], cwd=instance_dir)
+            
+            # Cleanup
+            os.remove(installer_path)
+            
+            return True
+            
+    except Exception as e:
+        print_error(f"Failed to install NeoForge: {e}")
+        return False
 def cmd_init(args):
     # Support initializing a specific instance if provided
     target_instance = getattr(args, 'instance_name', None)
@@ -319,70 +436,49 @@ def cmd_init(args):
     
     # Use get_instance_dir with the target instance
     instance_dir = get_instance_dir(target_instance)
+    instance_name = target_instance if target_instance else "default"
+    ensure_directories(instance_dir)
     
-    # Ensure directory exists (it should if we are calling from create, but good to be safe)
-    Path(instance_dir).mkdir(parents=True, exist_ok=True)
+    # Load existing config or create new
+    config = load_config(instance_name)
     
-    jar_path = os.path.join(instance_dir, SERVER_JAR)
-    eula_path = os.path.join(instance_dir, EULA_FILE)
+    # Determine version and type
+    version = args.version if args.version else config.get("server_version", "1.20.4")
+    server_type = args.type if args.type else config.get("server_type", "vanilla")
     
-    if os.path.exists(jar_path) and not args.force:
-        print_info("Server jar already exists. Use --force to overwrite.")
-    else:
-        version = args.version if args.version else config.get("server_version", "1.20.2")
-        server_type = args.type if args.type else config.get("server_type", "paper")
-        
-        url = ""
-        if server_type == "paper":
-            # PaperMC API
-            # https://api.papermc.io/v2/projects/paper/versions/{version}/builds
-            # We need to get the latest build
-            try:
-                print_info(f"Fetching latest Paper build for {version}...")
-                api_base = f"https://api.papermc.io/v2/projects/paper/versions/{version}"
-                with urllib.request.urlopen(api_base) as response:
-                    data = json.loads(response.read().decode())
-                    builds = data['builds']
-                    latest_build = builds[-1]
-                
-                # Construct download URL
-                # https://api.papermc.io/v2/projects/paper/versions/{version}/builds/{build}/downloads/{download}
-                # We need to get the download name from the build info? 
-                # Actually the builds list in version info is just integers.
-                # We need to query the build info or just construct the name if it follows a pattern.
-                # Pattern: paper-{version}-{build}.jar
-                jar_name = f"paper-{version}-{latest_build}.jar"
-                url = f"{api_base}/builds/{latest_build}/downloads/{jar_name}"
-                
-            except Exception as e:
-                print_error(f"Failed to get Paper build info: {e}")
-                return
-        elif server_type == "fabric":
-             # Fabric API
-             # https://meta.fabricmc.net/v2/versions/loader/{game_version}
-             try:
-                print_info(f"Fetching Fabric loader info for {version}...")
-                
-                # Get loader version
-                with urllib.request.urlopen(f"https://meta.fabricmc.net/v2/versions/loader/{version}") as response:
-                    data = json.loads(response.read().decode())
-                    if not data:
-                        print_error(f"No Fabric loader found for version {version}.")
-                        return
-                    loader_version = data[0]['loader']['version']
-                
-                # Get installer version
-                with urllib.request.urlopen("https://meta.fabricmc.net/v2/versions/installer") as response:
-                    data = json.loads(response.read().decode())
-                    installer_version = data[0]['version']
+    # Save to config immediately
+    config["server_version"] = version
+    config["server_type"] = server_type
+    config["current_instance"] = instance_name # Set as current
+    save_config(config, instance_name)
+    
+    print_header(f"Initializing instance {Colors.BLUE}{instance_name}{Colors.ENDC} ({server_type} {version})...")
 
-                # Construct download URL
-                # https://meta.fabricmc.net/v2/versions/loader/{game_version}/{loader_version}/{installer_version}/server/jar
-                url = f"https://meta.fabricmc.net/v2/versions/loader/{version}/{loader_version}/{installer_version}/server/jar"
+    # Check if server jar exists
+    jar_file = os.path.join(instance_dir, "server.jar")
+    eula_path = os.path.join(instance_dir, "eula.txt")
+    
+    if server_type == "neoforge":
+        if not install_neoforge(instance_dir, version):
+            return
+    elif server_type == "fabric":
+        if not install_fabric(instance_dir, version):
+            return
+    elif server_type == "paper":
+        builds_url = f"https://api.papermc.io/v2/projects/paper/versions/{version}/builds"
+        try:
+            with urllib.request.urlopen(builds_url) as response:
+                data = json.loads(response.read().decode())
+                latest_build = data["builds"][-1]["build"]
+                download = data["builds"][-1]["downloads"]["application"]["name"]
                 
-             except Exception as e:
-                print_error(f"Failed to get Fabric info: {e}")
-                return
+                download_url = f"https://api.papermc.io/v2/projects/paper/versions/{version}/builds/{latest_build}/downloads/{download}"
+                
+                print_info(f"Downloading Paper {version} build {latest_build}...")
+                download_file_with_progress(download_url, jar_file)
+        except Exception as e:
+            print_error(f"Failed to download Paper: {e}")
+            return
         else:
             # Vanilla
             # We need to parse the version manifest to get the URL
@@ -412,13 +508,13 @@ def cmd_init(args):
 
         print_info(f"Downloading server jar from {url}...")
         try:
-            download_file_with_progress(url, jar_path)
+            download_file_with_progress(url, jar_file)
             print_success("Download complete.")
         except Exception as e:
             print_error(f"Download failed: {e}")
             # Clean up partial file
-            if os.path.exists(jar_path):
-                os.remove(jar_path)
+            if os.path.exists(jar_file):
+                os.remove(jar_file)
             return
 
     # EULA
@@ -470,30 +566,57 @@ def cmd_start(args):
         ram_max = args.ram
         ram_min = args.ram
 
-    java_cmd = [
-        config.get("java_path", "java"),
-        f"-Xms{ram_min}",
-        f"-Xmx{ram_max}",
-        "-jar",
-        SERVER_JAR,
-        "nogui"
-    ]
+    # Construct command
+    launch_cmd = []
+    neoforge_args = None
+    
+    if config.get("server_type") == "neoforge":
+        # Look for unix_args.txt in libraries
+        # libraries/net/neoforged/neoforge/{version}/unix_args.txt
+        lib_path = os.path.join(server_dir, "libraries", "net", "neoforged", "neoforge")
+        if os.path.exists(lib_path):
+            # Find version dir
+            for d in os.listdir(lib_path):
+                args_file = os.path.join(lib_path, d, "unix_args.txt")
+                if os.path.exists(args_file):
+                    neoforge_args = args_file
+                    break
+    
+    if neoforge_args:
+        # NeoForge launch
+        launch_cmd = [
+            config.get("java_path", "java"),
+            f"-Xms{ram_min}",
+            f"-Xmx{ram_max}",
+            f"@{neoforge_args}",
+            "nogui"
+        ]
+    else:
+        # Standard launch
+        launch_cmd = [
+            config.get("java_path", "java"),
+            f"-Xms{ram_min}",
+            f"-Xmx{ram_max}",
+            "-jar",
+            SERVER_JAR,
+            "nogui"
+        ]
     
     screen_name = get_screen_name()
     
     if args.detach:
         print_header(f"Starting server in detached mode (screen session: {screen_name})...")
         # screen -dmS name java ...
-        screen_cmd = ["screen", "-dmS", screen_name] + java_cmd
+        screen_cmd = ["screen", "-dmS", screen_name] + launch_cmd
         subprocess.run(screen_cmd, cwd=server_dir)
         print_success(f"Server started in background. Use 'screen -r {screen_name}' to attach.")
     else:
-        print_header(f"Starting server with: {' '.join(java_cmd)}")
+        print_header(f"Starting server with: {' '.join(launch_cmd)}")
         print_info("Press Ctrl+C to stop safely.")
         
         try:
             process = subprocess.Popen(
-                java_cmd, 
+                launch_cmd, 
                 cwd=server_dir, 
                 stdin=subprocess.PIPE, 
                 stdout=sys.stdout, 
@@ -711,6 +834,370 @@ def cmd_config(args):
         config["admin_password_hash"] = hashlib.sha256(p1.encode()).hexdigest()
         save_config(config)
         print_success("Admin password set.")
+    elif args.action == "properties":
+        edit_server_properties()
+
+def edit_server_properties():
+    server_dir = get_instance_dir()
+    prop_file = os.path.join(server_dir, "server.properties")
+    
+    if not os.path.exists(prop_file):
+        print_error("server.properties not found. Run the server once to generate it.")
+        return
+
+    # Helper to read properties
+    def read_props():
+        props = {}
+        with open(prop_file, 'r') as f:
+            for line in f:
+                if "=" in line and not line.startswith("#"):
+                    k, v = line.strip().split("=", 1)
+                    props[k] = v
+        return props
+
+    # Helper to write a property
+    def write_prop(key, value):
+        lines = []
+        key_found = False
+        with open(prop_file, 'r') as f:
+            for line in f:
+                if line.strip().startswith(f"{key}="):
+                    lines.append(f"{key}={value}\n")
+                    key_found = True
+                else:
+                    lines.append(line)
+        if not key_found:
+            lines.append(f"{key}={value}\n")
+        with open(prop_file, 'w') as f:
+            f.writelines(lines)
+
+    while True:
+        os.system('cls' if os.name == 'nt' else 'clear')
+        print_header("=== Server Properties Editor ===")
+        props = read_props()
+        
+        # Define menu items: (Label, Property Key, Current Value)
+        menu_items = [
+            ("Gamemode", "gamemode", props.get("gamemode", "survival")),
+            ("Difficulty", "difficulty", props.get("difficulty", "easy")),
+            ("PVP", "pvp", props.get("pvp", "true")),
+            ("Whitelist", "white-list", props.get("white-list", "false")),
+            ("Max Players", "max-players", props.get("max-players", "20")),
+            ("Online Mode", "online-mode", props.get("online-mode", "true")),
+            ("MOTD", "motd", props.get("motd", "A Minecraft Server"))
+        ]
+        
+        for i, (label, key, val) in enumerate(menu_items):
+            print(f"[{i+1}] {label}: {Colors.CYAN}{val}{Colors.ENDC}")
+        print("[B]ack to Dashboard")
+        
+        choice = input("\nSelect option to edit: ").lower()
+        
+        if choice == 'b':
+            break
+            
+        try:
+            idx = int(choice) - 1
+            if 0 <= idx < len(menu_items):
+                label, key, current_val = menu_items[idx]
+                
+                # Handle toggles/cycles
+                if key == "pvp" or key == "white-list" or key == "online-mode":
+                    new_val = "false" if current_val == "true" else "true"
+                    write_prop(key, new_val)
+                elif key == "gamemode":
+                    modes = ["survival", "creative", "adventure", "spectator"]
+                    try:
+                        curr_idx = modes.index(current_val)
+                        new_val = modes[(curr_idx + 1) % len(modes)]
+                    except ValueError:
+                        new_val = "survival"
+                    write_prop(key, new_val)
+                elif key == "difficulty":
+                    diffs = ["peaceful", "easy", "normal", "hard"]
+                    try:
+                        curr_idx = diffs.index(current_val)
+                        new_val = diffs[(curr_idx + 1) % len(diffs)]
+                    except ValueError:
+                        new_val = "easy"
+                    write_prop(key, new_val)
+                else:
+                    # Text input
+                    new_val = input(f"Enter new value for {label} (current: {current_val}): ").strip()
+                    if new_val:
+                        write_prop(key, new_val)
+        except ValueError:
+            pass
+
+def get_uuid(username):
+    """Fetch UUID from Mojang API."""
+    try:
+        url = f"https://api.mojang.com/users/profiles/minecraft/{username}"
+        with urllib.request.urlopen(url) as response:
+            if response.status == 200:
+                data = json.loads(response.read().decode())
+                # Mojang returns UUID without dashes, Minecraft uses dashes
+                raw_uuid = data['id']
+                formatted_uuid = f"{raw_uuid[:8]}-{raw_uuid[8:12]}-{raw_uuid[12:16]}-{raw_uuid[16:20]}-{raw_uuid[20:]}"
+                return formatted_uuid, data['name']
+    except Exception as e:
+        pass
+    return None, None
+
+def cmd_users(args):
+    if not args.list_type or not args.action:
+        print_error("Usage: users <whitelist|ops> <add|remove|list> [username]")
+        return
+
+    list_type = args.list_type # whitelist or ops
+    action = args.action # add, remove, list
+    username = args.username
+
+    server_dir = get_instance_dir()
+    json_file = os.path.join(server_dir, f"{list_type}.json") # whitelist.json or ops.json
+
+    # If server is running, use console commands
+    if is_server_running():
+        if action == "list":
+            send_command(f"{list_type} list")
+            # We can't easily capture output from screen, so we just say check console/logs
+            print_info(f"Sent '{list_type} list' to server. Check logs or console.")
+        elif action == "add":
+            if not username:
+                print_error("Username required.")
+                return
+            # For ops, command is 'op', for whitelist it's 'whitelist add'
+            cmd = f"op {username}" if list_type == "ops" else f"whitelist add {username}"
+            send_command(cmd)
+            print_success(f"Sent '{cmd}' to server.")
+        elif action == "remove":
+            if not username:
+                print_error("Username required.")
+                return
+            cmd = f"deop {username}" if list_type == "ops" else f"whitelist remove {username}"
+            send_command(cmd)
+            print_success(f"Sent '{cmd}' to server.")
+        return
+
+    # If server is stopped, edit JSON files
+    print_info(f"Server stopped. Editing {list_type}.json directly...")
+    
+    # Ensure file exists
+    if not os.path.exists(json_file):
+        with open(json_file, 'w') as f:
+            json.dump([], f)
+
+    try:
+        with open(json_file, 'r') as f:
+            data = json.load(f)
+    except json.JSONDecodeError:
+        data = []
+
+    if action == "list":
+        print_header(f"{list_type.capitalize()} List:")
+        if not data:
+            print("  (Empty)")
+        for entry in data:
+            print(f"  - {entry.get('name', 'Unknown')} ({entry.get('uuid', 'Unknown')})")
+
+    elif action == "add":
+        if not username:
+            print_error("Username required.")
+            return
+        
+        # Check if already exists
+        for entry in data:
+            if entry.get('name', '').lower() == username.lower():
+                print_error(f"{username} is already in {list_type}.")
+                return
+
+        print_info(f"Fetching UUID for {username}...")
+        uuid, real_name = get_uuid(username)
+        
+        if not uuid:
+            print_error("Could not find UUID. Is the username correct? (Offline editing requires valid Mojang account)")
+            return
+            
+        new_entry = {
+            "uuid": uuid,
+            "name": real_name
+        }
+        
+        # Ops need extra fields
+        if list_type == "ops":
+            new_entry["level"] = 4
+            new_entry["bypassesPlayerLimit"] = False
+
+        data.append(new_entry)
+        with open(json_file, 'w') as f:
+            json.dump(data, f, indent=4)
+        print_success(f"Added {real_name} to {list_type}.")
+
+    elif action == "remove":
+        if not username:
+            print_error("Username required.")
+            return
+        
+        initial_len = len(data)
+        data = [entry for entry in data if entry.get('name', '').lower() != username.lower()]
+        
+        if len(data) < initial_len:
+            with open(json_file, 'w') as f:
+                json.dump(data, f, indent=4)
+            print_success(f"Removed {username} from {list_type}.")
+        else:
+            print_error(f"{username} not found in {list_type}.")
+
+def manage_user_list(list_type, display_name):
+    """Generic menu for managing whitelist/ops."""
+    while True:
+        os.system('cls' if os.name == 'nt' else 'clear')
+        print_header(f"=== Manage {display_name} ===")
+        
+        # Show list immediately
+        args = argparse.Namespace(list_type=list_type, action="list", username=None)
+        cmd_users(args)
+        
+        print("\nCommands:")
+        print(f"[A]dd to {display_name}")
+        print(f"[R]emove from {display_name}")
+        print("[B]ack")
+        
+        choice = input("\nEnter command: ").lower()
+        
+        if choice == 'a':
+            username = input("Enter username: ").strip()
+            if username:
+                args = argparse.Namespace(list_type=list_type, action="add", username=username)
+                cmd_users(args)
+                input("\nPress Enter to continue...")
+        elif choice == 'r':
+            # Get names for completion
+            names = []
+            if not is_server_running():
+                f_path = os.path.join(get_instance_dir(), f"{list_type}.json")
+                if os.path.exists(f_path):
+                    try:
+                        with open(f_path, 'r') as f:
+                            names = [u['name'] for u in json.load(f)]
+                    except: pass
+            
+            username = input_with_completion("Enter username to remove (Tab to complete): ", names).strip()
+            if username:
+                args = argparse.Namespace(list_type=list_type, action="remove", username=username)
+                cmd_users(args)
+                input("\nPress Enter to continue...")
+        elif choice == 'b':
+            break
+
+def manage_bans_menu():
+    """Menu for managing bans."""
+    while True:
+        os.system('cls' if os.name == 'nt' else 'clear')
+        print_header("=== Manage Bans ===")
+        print("\nCommands:")
+        print("[B]an Player")
+        print("[U]nban Player")
+        print("[I]P Ban")
+        print("[Un]ban IP")
+        print("[L]ist Bans")
+        print("[Back] to User Menu")
+        
+        choice = input("\nEnter command: ").lower()
+        
+        if choice == 'b':
+            username = input("Enter username to ban: ").strip()
+            reason = input("Enter reason (optional): ").strip()
+            if username:
+                # We don't have a direct cmd_users action for ban yet, 
+                # but we can use console command if running, or manual JSON edit if not.
+                # For now, let's rely on console commands as bans are usually runtime.
+                if is_server_running():
+                    cmd = f"ban {username} {reason}"
+                    send_command(cmd)
+                    print_success(f"Banned {username}")
+                else:
+                    print_error("Server must be running to ban players (for now).")
+                input("\nPress Enter to continue...")
+        elif choice == 'u':
+            username = input("Enter username to unban: ").strip()
+            if username:
+                if is_server_running():
+                    send_command(f"pardon {username}")
+                    print_success(f"Unbanned {username}")
+                else:
+                    print_error("Server must be running to unban players.")
+                input("\nPress Enter to continue...")
+        elif choice == 'i':
+            ip = input("Enter IP to ban: ").strip()
+            reason = input("Enter reason (optional): ").strip()
+            if ip:
+                if is_server_running():
+                    send_command(f"ban-ip {ip} {reason}")
+                    print_success(f"Banned IP {ip}")
+                else:
+                    print_error("Server must be running to ban IPs.")
+                input("\nPress Enter to continue...")
+        elif choice == 'un':
+            ip = input("Enter IP to unban: ").strip()
+            if ip:
+                if is_server_running():
+                    send_command(f"pardon-ip {ip}")
+                    print_success(f"Unbanned IP {ip}")
+                else:
+                    print_error("Server must be running to unban IPs.")
+                input("\nPress Enter to continue...")
+        elif choice == 'l':
+            print_header("Banned Players:")
+            if is_server_running():
+                send_command("banlist players")
+            else:
+                # Try reading banned-players.json
+                f_path = os.path.join(get_instance_dir(), "banned-players.json")
+                if os.path.exists(f_path):
+                    try:
+                        with open(f_path, 'r') as f:
+                            bans = json.load(f)
+                            for b in bans:
+                                print(f"- {b['name']} (Reason: {b.get('reason', 'None')})")
+                    except: print("Could not read ban list.")
+            
+            print_header("Banned IPs:")
+            if is_server_running():
+                send_command("banlist ips")
+            else:
+                 f_path = os.path.join(get_instance_dir(), "banned-ips.json")
+                 if os.path.exists(f_path):
+                    try:
+                        with open(f_path, 'r') as f:
+                            bans = json.load(f)
+                            for b in bans:
+                                print(f"- {b['ip']} (Reason: {b.get('reason', 'None')})")
+                    except: print("Could not read ban list.")
+            input("\nPress Enter to continue...")
+        elif choice == 'back':
+            break
+
+def dashboard_users_menu():
+    while True:
+        os.system('cls' if os.name == 'nt' else 'clear')
+        print_header("=== User Manager ===")
+        print("\nCommands:")
+        print("[W]hitelist")
+        print("[O]perators")
+        print("[B]ans")
+        print("[Back] to Configuration Menu")
+        
+        choice = input("\nEnter command: ").lower()
+        
+        if choice == 'w':
+            manage_user_list("whitelist", "Whitelist")
+        elif choice == 'o':
+            manage_user_list("ops", "Operators")
+        elif choice == 'b':
+            manage_bans_menu()
+        elif choice == 'back':
+            break
 
 def cmd_logs(args):
     server_dir = get_instance_dir()
@@ -912,12 +1399,16 @@ def dashboard_plugins_menu():
                 cmd_plugins(Args())
                 input("\nPress Enter to continue...")
         elif choice == 'r':
-            target_file = input("Enter Plugin Filename to remove: ").strip()
+            # Get list of plugins for completion
+            plugins_dir = os.path.join(get_instance_dir(), "plugins")
+            plugins_list = []
+            if os.path.exists(plugins_dir):
+                plugins_list = [f for f in os.listdir(plugins_dir) if f.endswith(".jar")]
+            
+            target_file = input_with_completion("Enter Plugin Filename to remove (Tab to complete): ", plugins_list).strip()
             if target_file:
-                class Args:
-                    action = "remove"
-                    target = target_file
-                cmd_plugins(Args())
+                args = argparse.Namespace(action="remove", target=target_file)
+                cmd_plugins(args)
                 input("\nPress Enter to continue...")
         elif choice == 'b':
             break
@@ -961,20 +1452,199 @@ def dashboard_instances_menu():
                 cmd_instance(args)
                 input("\nPress Enter to continue...")
         elif choice == 's':
-            name = input("Enter instance name to select: ").strip()
+            # Get instances list
+            instances_dir = "instances"
+            instances_list = []
+            if os.path.exists(instances_dir):
+                instances_list = [d for d in os.listdir(instances_dir) if os.path.isdir(os.path.join(instances_dir, d))]
+                
+            name = input_with_completion("Enter instance name to select (Tab to complete): ", instances_list).strip()
             if name:
                 args = argparse.Namespace(action="select", name=name)
                 cmd_instance(args)
                 input("\nPress Enter to continue...")
         elif choice == 'd':
-            name = input("Enter instance name to delete: ").strip()
+            # Get instances list
+            instances_dir = "instances"
+            instances_list = []
+            if os.path.exists(instances_dir):
+                instances_list = [d for d in os.listdir(instances_dir) if os.path.isdir(os.path.join(instances_dir, d))]
+                
+            name = input_with_completion("Enter instance name to delete (Tab to complete): ", instances_list).strip()
             if name:
                 args = argparse.Namespace(action="delete", name=name)
                 cmd_instance(args)
                 input("\nPress Enter to continue...")
         elif choice == 'b':
             break
+def dashboard_server_control():
+    while True:
+        os.system('cls' if os.name == 'nt' else 'clear')
+        print_header("=== Server Control ===")
+        
+        running = is_server_running()
+        status_color = Colors.GREEN if running else Colors.FAIL
+        status_text = "RUNNING" if running else "STOPPED"
+        print(f"Status: {status_color}{status_text}{Colors.ENDC}")
+        
+        print("\nCommands:")
+        print("[S]tart (Detached)")
+        print("[X] Stop (Graceful)")
+        print("[R]estart")
+        print("[K]ill (Force)")
+        print("[C]onsole")
+        print("[L]ogs")
+        print("[B]ack to Main Menu")
+        
+        choice = input("\nEnter command: ").lower()
+        
+        if choice == 's':
+            if not running:
+                class Args:
+                    ram = None
+                    detach = True
+                cmd_start(Args())
+                input("\nPress Enter to continue...")
+            else:
+                print_info("Server already running.")
+                input("\nPress Enter to continue...")
+        elif choice == 'x':
+            if running:
+                cmd_stop(None)
+                input("\nPress Enter to continue...")
+            else:
+                print_info("Server not running.")
+                input("\nPress Enter to continue...")
+        elif choice == 'r':
+            if running:
+                cmd_stop(None)
+                time.sleep(2)
+            class Args:
+                ram = None
+                detach = True
+            cmd_start(Args())
+            input("\nPress Enter to continue...")
+        elif choice == 'k':
+            if running:
+                cmd_kill(None)
+                input("\nPress Enter to continue...")
+            else:
+                print_info("Server not running.")
+                input("\nPress Enter to continue...")
+        elif choice == 'c':
+            cmd_console(None)
+        elif choice == 'l':
+            cmd_logs(None)
+            input("\nPress Enter to continue...")
+        elif choice == 'b':
+            break
 
+def dashboard_content_management():
+    while True:
+        os.system('cls' if os.name == 'nt' else 'clear')
+        print_header("=== Content Management ===")
+        print("\nCommands:")
+        print("[M]ods")
+        print("[P]lugins")
+        print("[B]ackups")
+        print("[R]estore Backup")
+        print("[Back] to Main Menu")
+        
+        choice = input("\nEnter command: ").lower()
+        
+        if choice == 'm':
+            dashboard_mods_menu()
+        elif choice == 'p':
+            dashboard_plugins_menu()
+        elif choice == 'b':
+            cmd_backup(None)
+            input("\nPress Enter to continue...")
+        elif choice == 'r':
+            cmd_restore(None)
+            input("\nPress Enter to continue...")
+        elif choice == 'back':
+            break
+
+def dashboard_config_users():
+    while True:
+        os.system('cls' if os.name == 'nt' else 'clear')
+        print_header("=== Configuration & Users ===")
+        print("\nCommands:")
+        print("[E]dit Server Properties")
+        print("[U]sers (Whitelist/Ops/Bans)")
+        print("[G]lobal Settings")
+        print("[B]ack to Main Menu")
+        
+        choice = input("\nEnter command: ").lower()
+        
+        if choice == 'e':
+            args = argparse.Namespace(action="properties", key=None, value=None)
+            cmd_config(args)
+            input("\nPress Enter to continue...")
+        elif choice == 'u':
+            dashboard_users_menu()
+        elif choice == 'g':
+            args = argparse.Namespace(action="list", key=None, value=None)
+            cmd_config(args)
+            input("\nPress Enter to continue...")
+        elif choice == 'b':
+            break
+
+def dashboard_instance_manager():
+    while True:
+        os.system('cls' if os.name == 'nt' else 'clear')
+        print_header("=== Instance Manager ===")
+        
+        config = load_config()
+        current = config.get("current_instance", "default")
+        print(f"Current Instance: {Colors.BLUE}{current}{Colors.ENDC}")
+        
+        print("\nCommands:")
+        print("[S]witch / List Instances")
+        print("[C]reate New Instance")
+        print("[D]elete Instance")
+        print("[B]ack to Main Menu")
+        
+        choice = input("\nEnter command: ").lower()
+        
+        if choice == 's':
+            dashboard_instances_menu() # Reusing existing menu which handles select/delete/list
+        elif choice == 'c':
+            # Interactive create
+            name = input("Enter new instance name: ").strip()
+            if name:
+                version = input("Enter Minecraft version (default 1.20.4): ").strip()
+                stype = input("Enter server type (vanilla/paper/fabric/neoforge, default paper): ").strip().lower()
+                
+                args = argparse.Namespace(
+                    action="create", 
+                    name=name, 
+                    version=version if version else None, 
+                    type=stype if stype else None
+                )
+                cmd_instance(args)
+                input("\nPress Enter to continue...")
+        elif choice == 'd':
+             # Reuse existing menu logic or just call cmd_instance
+             # dashboard_instances_menu has 'd' option
+             dashboard_instances_menu()
+        elif choice == 'b':
+            break
+
+def dashboard_system_network():
+    while True:
+        os.system('cls' if os.name == 'nt' else 'clear')
+        print_header("=== System & Network ===")
+        print("\nCommands:")
+        print("[N]etwork Manager (Ports/UPnP)")
+        print("[B]ack to Main Menu")
+        
+        choice = input("\nEnter command: ").lower()
+        
+        if choice == 'n':
+            dashboard_network_menu()
+        elif choice == 'b':
+            break
 def cmd_dashboard(args):
     while True:
         os.system('cls' if os.name == 'nt' else 'clear')
@@ -989,9 +1659,7 @@ def cmd_dashboard(args):
         # Config info
         config = load_config()
         instance_name = config.get("current_instance", "default")
-        print(f"Instance: {Colors.BLUE}{instance_name}{Colors.ENDC}")
-        print(f"Version: {config.get('server_version')} ({config.get('server_type')})")
-        print(f"RAM: {config.get('ram_min')} - {config.get('ram_max')}")
+        print(f"Instance: {Colors.BLUE}{instance_name}{Colors.ENDC} | {config.get('server_version')} ({config.get('server_type')})")
         
         # Stats
         cpu = 0.0
@@ -1011,24 +1679,16 @@ def cmd_dashboard(args):
         
         # Live Stats Display
         print("-" * 30)
-        print(f"CPU: {cpu:.1f}%")
-        print(f"RAM: {ram:.0f} MB")
-        print(f"Players: {players_online} / {players_max}")
+        print(f"CPU: {cpu:.1f}% | RAM: {ram:.0f} MB | Players: {players_online}/{players_max}")
         print("-" * 30)
         
-        print("\nCommands:")
-        print("[S]tart (Detached)")
-        print("[X] Stop (Graceful)")
-        print("[K]ill (Force)")
-        print("[C]onsole")
-        print("[P]lugins")
-        print("[M]ods")
-        print("[N]etwork")
-        print("[I]nstances")
-        print("[B]ackup")
-        print("[R]estore")
-        print("[L]ogs")
-        print("[Q]uit Dashboard")
+        print("\nMain Menu:")
+        print("[1] Server Control...")
+        print("[2] Content Management...")
+        print("[3] Configuration & Users...")
+        print("[4] Instance Manager...")
+        print("[5] System & Network...")
+        print("[Q]uit")
         
         print("\n(Auto-refreshing stats... Press key to select command)")
         
@@ -1039,57 +1699,24 @@ def cmd_dashboard(args):
         if (i):
             choice = sys.stdin.readline().strip().lower()
             
-            if choice == 's':
-                if not running:
-                    class Args:
-                        ram = None
-                        detach = True
-                    cmd_start(Args())
-                    input("\nPress Enter to continue...")
-                else:
-                    print_info("Server already running.")
-                    time.sleep(1)
-            elif choice == 'x':
-                if running:
-                    cmd_stop(None)
-                    input("\nPress Enter to continue...")
-                else:
-                    print_info("Server not running.")
-                    time.sleep(1)
-            elif choice == 'k':
-                if running:
-                    cmd_kill(None)
-                    input("\nPress Enter to continue...")
-                else:
-                    print_info("Server not running.")
-                    time.sleep(1)
-            elif choice == 'c':
-                cmd_console(None)
-            elif choice == 'p':
-                dashboard_plugins_menu()
-            elif choice == 'm':
-                dashboard_mods_menu()
-            elif choice == 'n':
-                dashboard_network_menu()
-            elif choice == 'i':
-                dashboard_instances_menu()
-            elif choice == 'b':
-                cmd_backup(None)
-                input("\nPress Enter to continue...")
-            elif choice == 'r':
-                class Args:
-                    file = None
-                cmd_restore(Args())
-                input("\nPress Enter to continue...")
-            elif choice == 'l':
-                cmd_logs(None)
-                input("\nPress Enter to continue...")
+            if choice == '1':
+                dashboard_server_control()
+            elif choice == '2':
+                dashboard_content_management()
+            elif choice == '3':
+                dashboard_config_users()
+            elif choice == '4':
+                dashboard_instance_manager()
+            elif choice == '5':
+                dashboard_system_network()
             elif choice == 'q':
+                print("Goodbye!")
                 break
 
 def cmd_plugins(args):
-    plugins_dir = os.path.join(SERVER_DIR, "plugins")
-    Path(plugins_dir).mkdir(exist_ok=True)
+    plugins_dir = os.path.join(get_instance_dir(), "plugins")
+    if not os.path.exists(plugins_dir):
+        os.makedirs(plugins_dir, exist_ok=True)
 
     if args.action == "list":
         print_header("Plugins:")
@@ -1102,20 +1729,65 @@ def cmd_plugins(args):
     
     elif args.action == "install":
         if not args.target:
-            print_error("Usage: plugins install <url>")
+            print_error("Usage: plugins install <url|name>")
             return
-        
-        url = args.target
-        # Try to guess filename from URL
-        filename = url.split("/")[-1]
-        if not filename.endswith(".jar"):
-            filename += ".jar"
             
-        dest_path = os.path.join(plugins_dir, filename)
+        target = args.target
         
-        print_info(f"Installing plugin from {url}...")
-        download_file(url, dest_path)
-        print_success(f"Installed {filename}. Restart server to load.")
+        # If URL
+        if target.startswith("http://") or target.startswith("https://"):
+            url = target
+            filename = url.split("/")[-1]
+            if not filename.endswith(".jar"):
+                filename += ".jar"
+            dest = os.path.join(plugins_dir, filename)
+            print_info(f"Downloading plugin from {url}...")
+            try:
+                download_file_with_progress(url, dest)
+                print_success(f"Installed {filename}")
+            except Exception as e:
+                print_error(f"Failed to install plugin: {e}")
+                if os.path.exists(dest):
+                    os.remove(dest)
+        else:
+            # Search Modrinth
+            config = load_config()
+            version = config.get("server_version")
+            # For plugins, we assume paper/spigot/bukkit compatibility
+            loaders = ["paper", "spigot", "bukkit"]
+            
+            print_info(f"Searching Modrinth for plugin '{target}' ({version})...")
+            hits = search_modrinth(target, version, loaders, project_type="plugin")
+            
+            if not hits:
+                print_error("No compatible plugins found.")
+                return
+                
+            print_header("Search Results:")
+            for i, hit in enumerate(hits):
+                print(f"[{i+1}] {hit['title']} ({hit['author']}) - {hit['description'][:50]}...")
+                
+            try:
+                choice = int(input("\nSelect plugin to install (0 to cancel): "))
+                if choice == 0:
+                    return
+                if 1 <= choice <= len(hits):
+                    selected = hits[choice-1]
+                    slug = selected['slug']
+                    print_info(f"Fetching latest version for {selected['title']}...")
+                    url, filename = get_latest_project_file(slug, version, loaders)
+                    
+                    if url and filename:
+                        dest = os.path.join(plugins_dir, filename)
+                        print_info(f"Downloading {filename}...")
+                        download_file_with_progress(url, dest)
+                        print_success(f"Installed {filename}")
+                    else:
+                        print_error("Could not find a compatible file for download.")
+                else:
+                    print_error("Invalid selection.")
+            except ValueError:
+                print_error("Invalid input.")
         
     elif args.action == "remove":
         if not args.target:
@@ -1137,6 +1809,81 @@ def cmd_plugins(args):
         else:
             print_error(f"Plugin {target} not found.")
 
+def search_modrinth(query, version, loaders, project_type="mod"):
+    """Search Modrinth for projects compatible with version and loaders."""
+    try:
+        base_url = "https://api.modrinth.com/v2/search"
+        
+        # Facets for filtering
+        # Loaders can be a single string or a list of strings
+        if isinstance(loaders, str):
+            loaders = [loaders]
+            
+        loader_facet = [f"categories:{l}" for l in loaders]
+        
+        facets_list = [
+            [f"versions:{version}"],
+            [f"project_type:{project_type}"]
+        ]
+        
+        if loader_facet:
+            facets_list.append(loader_facet)
+            
+        facets = json.dumps(facets_list)
+        params = {
+            "query": query,
+            "facets": facets,
+            "limit": 5
+        }
+        query_string = urllib.parse.urlencode(params)
+        url = f"{base_url}?{query_string}"
+        
+        req = urllib.request.Request(url)
+        req.add_header("User-Agent", "MineManage/1.0 (launcher)")
+        
+        with urllib.request.urlopen(req) as response:
+            if response.status == 200:
+                data = json.loads(response.read().decode())
+                return data.get("hits", [])
+    except Exception as e:
+        print_error(f"Modrinth search failed: {e}")
+    return []
+
+def get_latest_project_file(slug, version, loaders):
+    """Get the latest compatible file URL for a project."""
+    try:
+        if isinstance(loaders, str):
+            loaders = [loaders]
+            
+        url = f"https://api.modrinth.com/v2/project/{slug}/version"
+        params = {
+            "loaders": json.dumps(loaders),
+            "game_versions": json.dumps([version])
+        }
+        query_string = urllib.parse.urlencode(params)
+        
+        full_url = f"{url}?{query_string}"
+        req = urllib.request.Request(full_url)
+        req.add_header("User-Agent", "MineManage/1.0 (launcher)")
+        
+        with urllib.request.urlopen(req) as response:
+            if response.status == 200:
+                versions = json.loads(response.read().decode())
+                # Versions are returned sorted by date (newest first) by default
+                for v in versions:
+                    # Double check compatibility
+                    if version in v['game_versions']:
+                        # Check if any of our loaders are in the version's loaders
+                        if any(l in v['loaders'] for l in loaders):
+                            files = v.get('files', [])
+                            if files:
+                                # Prefer primary file
+                                primary = next((f for f in files if f.get('primary')), files[0])
+                                return primary['url'], primary['filename']
+    except Exception as e:
+        print_error(f"Failed to get project file: {e}")
+    return None, None
+
 def cmd_mods(args):
     instance_dir = get_instance_dir()
     mods_dir = os.path.join(instance_dir, "mods")
@@ -1155,25 +1902,78 @@ def cmd_mods(args):
                 
     elif args.action == "install":
         if not args.target:
-            print_error("Usage: mods install <url>")
+            print_error("Usage: mods install <url|name>")
             return
             
-        url = args.target
-        filename = url.split("/")[-1]
-        # Basic heuristic to ensure .jar extension
-        if not filename.endswith(".jar"):
-            filename += ".jar"
+        target = args.target
+        
+        # If it looks like a URL, download directly
+        if target.startswith("http://") or target.startswith("https://"):
+            url = target
+            filename = url.split("/")[-1]
+            if not filename.endswith(".jar"):
+                filename += ".jar"
+            dest = os.path.join(mods_dir, filename)
+            print_info(f"Downloading mod from {url}...")
+            try:
+                download_file_with_progress(url, dest)
+                print_success(f"Installed {filename}")
+            except Exception as e:
+                print_error(f"Failed to install mod: {e}")
+                if os.path.exists(dest):
+                    os.remove(dest)
+        else:
+            # Search Modrinth
+            config = load_config()
+            version = config.get("server_version")
+            loader = config.get("server_type", "vanilla").lower()
             
-        dest = os.path.join(mods_dir, filename)
-        print_info(f"Downloading mod from {url}...")
-        try:
-            download_file_with_progress(url, dest)
-            print_success(f"Installed {filename}")
-        except Exception as e:
-            print_error(f"Failed to install mod: {e}")
-            if os.path.exists(dest):
-                os.remove(dest)
+            # Map 'paper' to 'bukkit' or 'spigot' if we supported plugins here, 
+            # but for mods we assume Fabric/Forge/NeoForge.
+            # If loader is 'paper', warn user.
+            if loader not in ["fabric", "forge", "neoforge", "quilt"]:
+                print_info(f"{Colors.YELLOW}Warning: Your server type is '{loader}'. Mods usually require Fabric, Forge, or NeoForge.{Colors.ENDC}")
+                # We'll try searching for 'fabric' compatible mods by default if they insist, or just 'mod' category?
+                # Let's default to 'fabric' for search if unknown, or ask user?
+                # For now, let's just try to use the loader as is, but if it's paper, maybe search for plugins?
+                # The prompt asked for "Mod installation", so let's stick to mods.
+                if loader == "paper":
+                     print_error("Paper servers use Plugins, not Mods. Use 'plugins install' instead.")
+                     return
+
+            print_info(f"Searching Modrinth for '{target}' ({loader} {version})...")
+            hits = search_modrinth(target, version, loader, project_type="mod")
+            
+            if not hits:
+                print_error("No compatible mods found.")
+                return
                 
+            print_header("Search Results:")
+            for i, hit in enumerate(hits):
+                print(f"[{i+1}] {hit['title']} ({hit['author']}) - {hit['description'][:50]}...")
+                
+            try:
+                choice = int(input("\nSelect mod to install (0 to cancel): "))
+                if choice == 0:
+                    return
+                if 1 <= choice <= len(hits):
+                    selected = hits[choice-1]
+                    slug = selected['slug']
+                    print_info(f"Fetching latest version for {selected['title']}...")
+                    url, filename = get_latest_project_file(slug, version, loader)
+                    
+                    if url and filename:
+                        dest = os.path.join(mods_dir, filename)
+                        print_info(f"Downloading {filename}...")
+                        download_file_with_progress(url, dest)
+                        print_success(f"Installed {filename}")
+                    else:
+                        print_error("Could not find a compatible file for download.")
+                else:
+                    print_error("Invalid selection.")
+            except ValueError:
+                print_error("Invalid input.")
+
     elif args.action == "remove":
         if not args.target:
             print_error("Usage: mods remove <filename>")
@@ -1208,26 +2008,34 @@ def dashboard_mods_menu():
                 print(f"  - {f}")
                 
         print("\nCommands:")
-        print("[I]nstall (URL)")
+        print("[I]nstall (Search or URL)")
         print("[R]emove (Filename)")
         print("[B]ack to Dashboard")
         
         choice = input("\nEnter command: ").lower()
         
         if choice == 'i':
-            url = input("Enter Mod URL: ").strip()
+            url = input("Enter Mod Name or URL: ").strip()
             if url:
                 args = argparse.Namespace(action="install", target=url)
                 cmd_mods(args)
                 input("\nPress Enter to continue...")
         elif choice == 'r':
-            name = input("Enter filename to remove: ").strip()
-            if name:
-                args = argparse.Namespace(action="remove", target=name)
+            # Get list of mods for completion
+            mods_list = [f for f in os.listdir(mods_dir) if f.endswith(".jar")]
+            if not mods_list:
+                print_error("No mods to remove.")
+                continue
+                
+            target_file = input_with_completion("Enter filename to remove (Tab to complete): ", mods_list).strip()
+            if target_file:
+                args = argparse.Namespace(action="remove", target=target_file)
                 cmd_mods(args)
                 input("\nPress Enter to continue...")
         elif choice == 'b':
             break
+
+
 
 def cmd_network(args):
     if args.action == "info":
@@ -1546,7 +2354,7 @@ def main():
     # Init command
     parser_init = subparsers.add_parser("init", help="Initialize the server")
     parser_init.add_argument("--version", help="Minecraft version (e.g., 1.20.2)")
-    parser_init.add_argument("--type", choices=["vanilla", "paper", "fabric"], help="Server type")
+    parser_init.add_argument("--type", choices=["vanilla", "paper", "fabric", "neoforge"], help="Server type")
     parser_init.add_argument("--force", action="store_true", help="Force download even if jar exists")
     
     # Start command
@@ -1572,9 +2380,15 @@ def main():
 
     # Config command
     parser_config = subparsers.add_parser("config", help="Manage configuration")
-    parser_config.add_argument("action", choices=["list", "set", "set-prop", "set-password"], help="Action to perform")
+    parser_config.add_argument("action", choices=["list", "set", "set-prop", "set-password", "properties"], help="Action to perform")
     parser_config.add_argument("key", nargs="?", help="Config key")
     parser_config.add_argument("value", nargs="?", help="Config value")
+
+    # Users command
+    parser_users = subparsers.add_parser("users", help="Manage whitelist and ops")
+    parser_users.add_argument("list_type", choices=["whitelist", "ops"], help="List to modify")
+    parser_users.add_argument("action", choices=["add", "remove", "list"], help="Action to perform")
+    parser_users.add_argument("username", nargs="?", help="Username")
 
     # Plugins command
     parser_plugins = subparsers.add_parser("plugins", help="Manage plugins")
@@ -1596,7 +2410,7 @@ def main():
     parser_instance.add_argument("action", choices=["list", "create", "select", "delete"], help="Action to perform")
     parser_instance.add_argument("name", nargs="?", help="Instance name")
     parser_instance.add_argument("--version", help="Minecraft version (create only)")
-    parser_instance.add_argument("--type", choices=["vanilla", "paper", "fabric"], help="Server type (create only)")
+    parser_instance.add_argument("--type", choices=["vanilla", "paper", "fabric", "neoforge"], help="Server type (create only)")
 
     # Logs command
     parser_logs = subparsers.add_parser("logs", help="View server logs")
@@ -1622,6 +2436,8 @@ def main():
         cmd_restore(args)
     elif args.command == "config":
         cmd_config(args)
+    elif args.command == "users":
+        cmd_users(args)
     elif args.command == "plugins":
         cmd_plugins(args)
     elif args.command == "mods":
