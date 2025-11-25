@@ -9,6 +9,7 @@ config.json
 instances/
 server/
 backups/
+deploy_wiki.sh
 
 # Logs
 *.log
