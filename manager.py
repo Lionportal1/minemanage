@@ -804,6 +804,7 @@ def cmd_init(args):
 def cmd_start(args):
     config = load_config()
     server_dir = get_instance_dir()
+    jar_path = os.path.join(server_dir, SERVER_JAR)
     eula_path = os.path.join(server_dir, EULA_FILE)
     
     if not os.path.exists(jar_path):
@@ -1759,6 +1760,7 @@ def dashboard_server_control():
         print("[K]ill (Force)")
         print("[C]onsole")
         print("[L]ogs")
+        print("[I]nitialize/Re-install Server")
         print("[B]ack to Main Menu")
         
         choice = input("\nEnter command: ").lower()
@@ -1801,33 +1803,6 @@ def dashboard_server_control():
         elif choice == 'l':
             cmd_logs(None)
             input("\nPress Enter to continue...")
-        elif choice == 'b':
-            break
-
-def dashboard_content_management():
-    while True:
-        os.system('cls' if os.name == 'nt' else 'clear')
-        print_header("=== Content Management ===")
-        print("\nCommands:")
-        print("[M]ods")
-        print("[P]lugins")
-        print("[B]ackups")
-        print("[R]estore Backup")
-        print("[I]nitialize/Re-install Server")
-        print("[Back] to Main Menu")
-        
-        choice = input("\nEnter command: ").lower()
-        
-        if choice == 'm':
-            dashboard_mods_menu()
-        elif choice == 'p':
-            dashboard_plugins_menu()
-        elif choice == 'b':
-            cmd_backup(None)
-            input("\nPress Enter to continue...")
-        elif choice == 'r':
-            cmd_restore(None)
-            input("\nPress Enter to continue...")
         elif choice == 'i':
             # Re-Initialize
             config = load_config()
@@ -1847,6 +1822,32 @@ def dashboard_content_management():
                     print_error("\nRe-initialization failed.")
             else:
                 print("Cancelled.")
+            input("\nPress Enter to continue...")
+        elif choice == 'b':
+            break
+
+def dashboard_content_management():
+    while True:
+        os.system('cls' if os.name == 'nt' else 'clear')
+        print_header("=== Content Management ===")
+        print("\nCommands:")
+        print("[M]ods")
+        print("[P]lugins")
+        print("[B]ackups")
+        print("[R]estore Backup")
+        print("[Back] to Main Menu")
+        
+        choice = input("\nEnter command: ").lower()
+        
+        if choice == 'm':
+            dashboard_mods_menu()
+        elif choice == 'p':
+            dashboard_plugins_menu()
+        elif choice == 'b':
+            cmd_backup(None)
+            input("\nPress Enter to continue...")
+        elif choice == 'r':
+            cmd_restore(None)
             input("\nPress Enter to continue...")
         elif choice == 'back':
             break
