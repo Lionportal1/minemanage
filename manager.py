@@ -82,45 +82,57 @@ def verify_checksum(file_path, expected_hash, algorithm='sha1'):
         print_error(f"Checksum verification failed: {e}")
         return False
 
-def download_file_with_progress(url, dest, expected_hash=None, hash_algo='sha1'):
-    try:
-        # Set a global socket timeout if not already set, or just pass timeout to urlopen
-        with urllib.request.urlopen(url, timeout=60) as response:
-            total_size = int(response.info().get('Content-Length', -1))
+def download_file_with_progress(url, dest, expected_hash=None, hash_algo='sha1', retries=3):
+    """Download a file with a progress bar and optional checksum verification."""
+    attempt = 0
+    while attempt <= retries:
+        try:
+            # Set a global socket timeout if not already set, or just pass timeout to urlopen
+            with urllib.request.urlopen(url, timeout=60) as response:
+                total_size = int(response.info().get('Content-Length', -1))
+                
+                with open(dest, 'wb') as out_file:
+                    downloaded = 0
+                    block_size = 8192
+                    
+                    last_update = 0
+                    
+                    while True:
+                        buffer = response.read(block_size)
+                        if not buffer:
+                            break
+                        
+                        out_file.write(buffer)
+                        downloaded += len(buffer)
+                        
+                        current_time = time.time()
+                        # Update max 5 times a second to avoid spamming stdout
+                        if current_time - last_update > 0.2:
+                            show_progress_manual(downloaded, total_size)
+                            last_update = current_time
+                    
+                    # Final update
+                    show_progress_manual(downloaded, total_size)
+                    print() # Newline
             
-            with open(dest, 'wb') as out_file:
-                downloaded = 0
-                block_size = 8192
-                
-                last_update = 0
-                
-                while True:
-                    buffer = response.read(block_size)
-                    if not buffer:
-                        break
-                    
-                    out_file.write(buffer)
-                    downloaded += len(buffer)
-                    
-                    current_time = time.time()
-                    # Update max 5 times a second to avoid spamming stdout
-                    if current_time - last_update > 0.2:
-                        show_progress_manual(downloaded, total_size)
-                        last_update = current_time
-                
-                # Final update
-                show_progress_manual(downloaded, total_size)
-                print() # Newline
-        
-        if expected_hash:
-            if not verify_checksum(dest, expected_hash, hash_algo):
-                print_error("Deleting corrupted file...")
-                os.remove(dest)
-                raise Exception("Checksum mismatch")
-                
-    except Exception as e:
-        print() # Ensure newline if we crash mid-bar
-        raise e
+            if expected_hash:
+                if not verify_checksum(dest, expected_hash, hash_algo):
+                    print_error("Deleting corrupted file...")
+                    os.remove(dest)
+                    raise Exception("Checksum mismatch")
+            
+            # If we get here, success
+            return
+
+        except Exception as e:
+            print() # Ensure newline if we crash mid-bar
+            attempt += 1
+            if attempt <= retries:
+                print_warning(f"Download failed: {e}. Retrying ({attempt}/{retries})...")
+                time.sleep(1) # Wait a bit before retry
+            else:
+                print_error(f"Download failed after {retries} retries.")
+                raise e
 
 def show_progress_manual(downloaded, total_size):
     output = ""
@@ -161,14 +173,31 @@ def validate_filename(filename):
 
 # Helper Functions
 def hash_password(password):
-    """Hash a password using PBKDF2-HMAC-SHA256 with a random salt."""
+    """
+    Hash a password using PBKDF2-HMAC-SHA256 with a random salt.
+    
+    Args:
+        password (str): The password to hash.
+        
+    Returns:
+        str: The salted and hashed password string.
+    """
     salt = os.urandom(16)
     # 100,000 iterations is a reasonable balance for 2024
     pwd_hash = hashlib.pbkdf2_hmac('sha256', password.encode(), salt, 100000)
     return f"{salt.hex()}${pwd_hash.hex()}"
 
 def verify_password(stored_password, provided_password):
-    """Verify a password against the stored hash."""
+    """
+    Verify a password against the stored hash.
+    
+    Args:
+        stored_password (str): The stored password hash.
+        provided_password (str): The password provided by the user.
+        
+    Returns:
+        bool: True if the password matches, False otherwise.
+    """
     # Configurable delay to slow down brute-force attacks
     config = get_global_config()
     delay = config.get("login_delay", 1.0)
@@ -185,7 +214,43 @@ def verify_password(stored_password, provided_password):
         print_error("Please reset your password using 'config set-password'.")
         return False
 
+def read_server_properties(server_dir=None):
+    """
+    Read server.properties into a dictionary.
+    
+    Args:
+        server_dir (str, optional): The directory containing server.properties. 
+                                    Defaults to current instance dir.
+                                    
+    Returns:
+        dict: A dictionary of property keys and values.
+    """
+    if not server_dir:
+        server_dir = get_instance_dir()
+    
+    prop_file = os.path.join(server_dir, "server.properties")
+    props = {}
+    
+    if os.path.exists(prop_file):
+        with open(prop_file, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, value = line.split("=", 1)
+                    props[key.strip()] = value.strip()
+    return props
+
 def get_instance_dir(instance_name=None):
+    """
+    Get the directory path for a specific instance.
+    
+    Args:
+        instance_name (str, optional): The name of the instance. 
+                                       Defaults to the currently active instance.
+                                       
+    Returns:
+        str: The absolute path to the instance directory.
+    """
     if instance_name:
         return os.path.join(INSTANCES_DIR, instance_name)
     config = get_global_config()
@@ -193,25 +258,34 @@ def get_instance_dir(instance_name=None):
     return os.path.join(INSTANCES_DIR, current)
 
 def load_instance_config(instance_name=None):
-    base_dir = get_instance_dir(instance_name)
-    cfg_path = os.path.join(base_dir, INSTANCE_CONFIG_FILE)
+    """
+    Load the configuration for a specific instance.
     
-    if not os.path.exists(cfg_path):
-        return {
-            "ram_min": "2G",
-            "ram_max": "4G",
-            "server_type": "paper",
-            "server_version": "1.20.2"
-        }
-    
-    with open(cfg_path, 'r') as f:
-        return json.load(f)
+    Args:
+        instance_name (str, optional): The name of the instance.
+        
+    Returns:
+        dict: The instance configuration dictionary.
+    """
+    instance_dir = get_instance_dir(instance_name)
+    config_path = os.path.join(instance_dir, INSTANCE_CONFIG_FILE)
+    if os.path.exists(config_path):
+        with open(config_path, 'r') as f:
+            return json.load(f)
+    return {}
 
 def save_instance_config(config, instance_name=None):
-    base_dir = get_instance_dir(instance_name)
-    Path(base_dir).mkdir(parents=True, exist_ok=True)
-    cfg_path = os.path.join(base_dir, INSTANCE_CONFIG_FILE)
-    with open(cfg_path, 'w') as f:
+    """
+    Save the configuration for a specific instance.
+    
+    Args:
+        config (dict): The configuration dictionary to save.
+        instance_name (str, optional): The name of the instance.
+    """
+    instance_dir = get_instance_dir(instance_name)
+    ensure_directories(instance_dir)
+    config_path = os.path.join(instance_dir, INSTANCE_CONFIG_FILE)
+    with open(config_path, 'w') as f:
         json.dump(config, f, indent=4)
 
 def migrate_to_instances():
@@ -2479,14 +2553,8 @@ def cmd_network(args):
         
         # Port
         server_dir = get_instance_dir()
-        prop_file = os.path.join(server_dir, "server.properties")
-        port = "25565 (Default)"
-        if os.path.exists(prop_file):
-            with open(prop_file, 'r') as f:
-                for line in f:
-                    if line.strip().startswith("server-port="):
-                        port = line.strip().split("=")[1]
-                        break
+        props = read_server_properties(server_dir)
+        port = props.get("server-port", "25565 (Default)")
         print(f"Server Port: {Colors.YELLOW}{port}{Colors.ENDC}")
         
     elif args.action == "set-port":
