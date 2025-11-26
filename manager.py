@@ -2222,6 +2222,108 @@ def dashboard_system_network():
             dashboard_network_menu()
         elif choice == 'b':
             break
+
+def dashboard_admin_menu():
+    """Admin/Settings menu for managing MineManage itself."""
+    while True:
+        os.system('cls' if os.name == 'nt' else 'clear')
+        print_header("=== Admin / Settings ===")
+        
+        config = load_config()
+        
+        # Display current settings
+        print("\nCurrent Global Settings:")
+        print(f"  Java Path: {config.get('java_path', 'java')}")
+        print(f"  Current Instance: {config.get('current_instance', 'default')}")
+        print(f"  Login Delay: {config.get('login_delay', 1.0)}s")
+        print(f"  Admin Password: {'SET' if config.get('admin_password_hash') else 'NOT SET'}")
+        
+        print("\nCommands:")
+        print("[1] Change Admin Password")
+        print("[2] Edit Global Config")
+        print("[3] Reset Admin Password (Remove)")
+        print("[B]ack to Main Menu")
+        
+        choice = input("\nEnter command: ").lower()
+        
+        if choice == '1':
+            # Change password
+            print_header("Change Admin Password")
+            current_pass = getpass.getpass("Enter current password (or press Enter if none set): ")
+            
+            # Verify current password if one is set
+            if config.get('admin_password_hash'):
+                if not verify_password(current_pass, config['admin_password_hash']):
+                    print_error("Incorrect password!")
+                    input("\nPress Enter to continue...")
+                    continue
+            
+            new_pass = getpass.getpass("Enter new password: ")
+            confirm_pass = getpass.getpass("Confirm new password: ")
+            
+            if new_pass != confirm_pass:
+                print_error("Passwords do not match!")
+            elif len(new_pass) < 4:
+                print_error("Password must be at least 4 characters!")
+            else:
+                config['admin_password_hash'] = hash_password(new_pass)
+                save_config(config)
+                print_success("Password changed successfully!")
+            
+            input("\nPress Enter to continue...")
+            
+        elif choice == '2':
+            # Edit global config
+            print_header("Edit Global Config")
+            print("Available settings:")
+            print("  [1] Java Path")
+            print("  [2] Login Delay")
+            
+            setting = input("\nSelect setting to edit (or Enter to cancel): ")
+            
+            if setting == '1':
+                current_path = config.get('java_path', 'java')
+                print(f"Current: {current_path}")
+                new_path = input("Enter new Java path (or Enter to keep current): ").strip()
+                if new_path:
+                    config['java_path'] = new_path
+                    save_config(config)
+                    print_success("Java path updated!")
+                    
+            elif setting == '2':
+                current_delay = config.get('login_delay', 1.0)
+                print(f"Current: {current_delay}s")
+                new_delay = input("Enter new login delay in seconds (or Enter to keep current): ").strip()
+                if new_delay:
+                    try:
+                        delay_float = float(new_delay)
+                        config['login_delay'] = delay_float
+                        save_config(config)
+                        print_success("Login delay updated!")
+                    except ValueError:
+                        print_error("Invalid number!")
+            
+            input("\nPress Enter to continue...")
+            
+        elif choice == '3':
+            # Reset password
+            print_header("Reset Admin Password")
+            print(f"{Colors.WARNING}WARNING: This will remove password protection from the dashboard!{Colors.ENDC}")
+            confirm = input("Are you sure? (yes/no): ").lower()
+            
+            if confirm == 'yes':
+                config['admin_password_hash'] = ""
+                save_config(config)
+                print_success("Admin password removed!")
+            else:
+                print_info("Cancelled.")
+            
+            input("\nPress Enter to continue...")
+            
+        elif choice == 'b':
+            break
+
+
 def cmd_dashboard(args):
     while True:
         os.system('cls' if os.name == 'nt' else 'clear')
@@ -2265,6 +2367,7 @@ def cmd_dashboard(args):
         print("[3] Configuration & Users...")
         print("[4] Instance Manager...")
         print("[5] System & Network...")
+        print("[6] Admin / Settings...")
         print("[Q]uit")
         
         print("\n(Auto-refreshing stats... Press key to select command)")
@@ -2286,6 +2389,8 @@ def cmd_dashboard(args):
                 dashboard_instance_manager()
             elif choice == '5':
                 dashboard_system_network()
+            elif choice == '6':
+                dashboard_admin_menu()
             elif choice == 'q':
                 print("Goodbye!")
                 break
