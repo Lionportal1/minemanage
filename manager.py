@@ -367,15 +367,7 @@ def get_screen_name():
     instance = config.get("current_instance", "default")
     return f"minemanage_{instance}"
 
-def download_file(url, dest_path):
-    print(f"Downloading {url} to {dest_path}...")
-    try:
-        with urllib.request.urlopen(url) as response, open(dest_path, 'wb') as out_file:
-            shutil.copyfileobj(response, out_file)
-    except Exception as e:
-        print(f"Download failed: {e}")
-        if os.path.exists(dest_path):
-            os.remove(dest_path)
+
 
 def get_vanilla_url(version):
     manifest_url = "https://piston-meta.mojang.com/mc/game/version_manifest.json"
@@ -1152,7 +1144,18 @@ def cmd_backup(args):
     
     print_info(f"Creating backup {backup_name}.zip...")
     try:
-        shutil.make_archive(backup_path, 'zip', server_dir, "world")
+        # Use zipfile to manually include all files except exclusions
+        with zipfile.ZipFile(f"{backup_path}.zip", 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for root, dirs, files in os.walk(server_dir):
+                # Exclude backup directory itself and logs/cache to save space
+                if "backups" in root or "logs" in root or "cache" in root:
+                    continue
+                    
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    arcname = os.path.relpath(file_path, server_dir)
+                    zipf.write(file_path, arcname)
+                    
         print_success(f"Backup created at {backup_path}.zip")
     except Exception as e:
         print_error(f"Backup failed: {e}")
@@ -1674,62 +1677,34 @@ def cmd_console(args):
         print_error(f"Failed to attach: {e}")
 
 def get_server_pid():
-    # Find PID of the java process running server.jar
-    # We need to be careful to find the PID for THIS instance.
-    # pgrep -f "server.jar" might match multiple.
-    # We can check the CWD of the process or use screen pid.
-    # Screen PID is safer if we can get it.
-    # "screen -ls" output: 12345.minemanage_instance ...
+    """
+    Get the PID of the screen session for the current instance.
+    Reliably parses 'screen -ls' output.
+    """
+    screen_name = get_screen_name()
     try:
-        screen_name = get_screen_name()
+        # Run screen -ls
+        # Output format:
+        # There is a screen on:
+        # 	12345.minemanage_default	(Detached)
+        # 1 Socket in /run/screen/S-user.
+        
         result = subprocess.run(["screen", "-list"], capture_output=True, text=True)
-        for line in result.stdout.split('\n'):
+        output = result.stdout
+        
+        if screen_name not in output:
+            return None
+            
+        for line in output.splitlines():
+            line = line.strip()
             if screen_name in line:
-                # Line format: 12345.name (Detached)
-                parts = line.strip().split('.')
-                if len(parts) > 0:
-                    pid_str = parts[0]
-                    if pid_str.isdigit():
-                        # This is the screen PID. The java process is a child of this.
-                        # Getting the child of the screen process is tricky portably.
-                        # Fallback to pgrep with cwd check?
-                        pass
-        
-        # Let's stick to pgrep but filter by CWD if possible, or just hope for best for now.
-        # Actually, if we use pgrep -f "server.jar", we get all of them.
-        # We can iterate them and check /proc/PID/cwd (Linux) or lsof (Mac).
-        # Mac: lsof -p PID | grep cwd
-        
-        cmd = ["pgrep", "-f", SERVER_JAR]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        pids = result.stdout.strip().split('\n')
-        
-        current_instance_dir = os.path.abspath(get_instance_dir())
-        
-        for pid in pids:
-            if not pid: continue
-            try:
-                if sys.platform == "linux" or sys.platform == "linux2":
-                    # Linux: Check /proc/PID/cwd
-                    try:
-                        cwd_link = f"/proc/{pid}/cwd"
-                        if os.path.exists(cwd_link):
-                            proc_cwd = os.readlink(cwd_link)
-                            if proc_cwd == current_instance_dir:
-                                return int(pid)
-                    except (PermissionError, FileNotFoundError):
-                        pass
-                else:
-                    # macOS/Other: Check CWD using lsof
-                    lsof = subprocess.run(["lsof", "-p", pid, "-F", "n"], capture_output=True, text=True)
-                    # Output contains lines like "n/path/to/cwd" (type cwd)
-                    if current_instance_dir in lsof.stdout:
-                        return int(pid)
-            except:
-                pass
-                
+                # Extract PID: "12345.minemanage_default" -> "12345"
+                parts = line.split('.')
+                if parts and parts[0].isdigit():
+                    return int(parts[0])
     except Exception:
         pass
+        
     return None
 
 def get_system_stats(pid):
