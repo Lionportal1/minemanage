@@ -18,21 +18,25 @@ MineManage makes it incredibly easy to create, manage, and monitor Minecraft ser
 
 ## 📥 Installation
 
-### Option 1: Quick Install (Recommended)
-Get up and running with a single command:
+### Option 1: Latest Stable Release (Recommended)
+This automatically installs the latest **stable release** from GitHub:
 
 ```bash
 curl -O https://raw.githubusercontent.com/Lionportal1/minemanage/main/install.sh && sudo bash install.sh
 ```
 
+The installer will fetch the latest release tag (e.g., `v1.4`) and install that version.
+
 ### Option 2: Development Build (Bleeding Edge)
-To install the latest code from the `main` branch:
+To install the latest **unstable code** from the `main` branch:
 ```bash
 curl -O https://raw.githubusercontent.com/Lionportal1/minemanage/main/install.sh && sudo bash install.sh --dev
 ```
 
-### Option 2: GitHub Releases
-You can also download the latest release from the [Releases Page](https://github.com/Lionportal1/minemanage/releases).
+⚠️ **Warning**: Development builds may have bugs or breaking changes.
+
+### Option 3: Manual Installation from Releases
+You can also manually download and run `install.sh` from the [Releases Page](https://github.com/Lionportal1/minemanage/releases).
 1. Download `install.sh` from the latest release.
 2. Run `sudo bash install.sh`.
 
