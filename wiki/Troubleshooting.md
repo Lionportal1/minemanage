@@ -22,6 +22,7 @@ source ~/.zshrc
     *   **Java Version**: You might need Java 17 or 21. Check `java -version`.
     *   **EULA**: Check `eula.txt` (MineManage should handle this, but verify).
     *   **RAM**: You might have allocated too much RAM (more than available) or too little. Check `instance.json`.
+    *   **Legacy Forge**: Older Forge versions (1.16.5 and below) often require **Java 8**. If you are using Java 17/21, the server will crash on startup.
 
 ## Permission Denied
 

@@ -8,7 +8,7 @@ MineManage makes it incredibly easy to create, manage, and monitor Minecraft ser
 
 ## ✨ Features
 
-- **🚀 Instant Setup**: Initialize a Vanilla, Paper, Fabric, or **NeoForge** server in seconds.
+- **🚀 Instant Setup**: Initialize a Vanilla, Paper, Fabric, **NeoForge**, or **Forge** server in seconds.
 - **🖥️ Interactive Dashboard 2.0**: A redesigned TUI with categorized menus (Control, Content, Config, Instances, Network) and **Global Tab Autocompletion**.
 - **🔌 Mod & Plugin Manager**: Search and install mods and plugins directly from **Modrinth** via the CLI.
 - **📦 Instance Management**: Switch between different server versions and modpacks effortlessly.
