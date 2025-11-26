@@ -6,14 +6,15 @@ Use this section to tell people about which versions of your project are current
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 1.1.x   | :white_check_mark: |
+| 1.2     | :white_check_mark: |
+| 1.1.x   | :x:                |
 | 1.0.x   | :x:                |
 
 ## Reporting a Vulnerability
 
 We take the security of MineManage seriously. If you discover a security vulnerability, please do NOT open an issue.
 
-Instead, please email [INSERT EMAIL ADDRESS] with:
+Instead, please email lionportal1gaming.lglnz@aleeas.com with:
 * A description of the vulnerability.
 * Steps to reproduce the issue.
 * Any relevant logs or screenshots.

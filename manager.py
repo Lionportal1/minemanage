@@ -188,57 +188,30 @@ def hash_password(password):
     return f"{salt.hex()}${pwd_hash.hex()}"
 
 def verify_password(stored_password, provided_password):
-    """
-    Verify a password against the stored hash.
-    
-    Args:
-        stored_password (str): The stored password hash.
-        provided_password (str): The password provided by the user.
-        
-    Returns:
-        bool: True if the password matches, False otherwise.
-    """
-    # Configurable delay to slow down brute-force attacks
-    config = get_global_config()
-    delay = config.get("login_delay", 1.0)
-    time.sleep(delay)
+    """Verify a password against the stored hash (supports legacy SHA-256).
 
+    Returns:
+        - True if password matches (no action needed) [modern hash]
+        - False if password does not match.
+        - (True, new_hash) if password matches legacy SHA-256 hash; should upgrade to new_hash.
+    """
     if "$" in stored_password:
         salt_hex, hash_hex = stored_password.split("$")
         salt = bytes.fromhex(salt_hex)
         pwd_hash = hashlib.pbkdf2_hmac('sha256', provided_password.encode(), salt, 100000)
         return pwd_hash.hex() == hash_hex
     else:
-        # Legacy SHA-256 support REMOVED for security
-        print_error("Legacy password hash detected. Login refused.")
-        print_error("Please reset your password using 'config set-password'.")
-        return False
-
-def read_server_properties(server_dir=None):
-    """
-    Read server.properties into a dictionary.
-    
-    Args:
-        server_dir (str, optional): The directory containing server.properties. 
-                                    Defaults to current instance dir.
-                                    
-    Returns:
-        dict: A dictionary of property keys and values.
-    """
-    if not server_dir:
-        server_dir = get_instance_dir()
-    
-    prop_file = os.path.join(server_dir, "server.properties")
-    props = {}
-    
-    if os.path.exists(prop_file):
-        with open(prop_file, 'r') as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    key, value = line.split("=", 1)
-                    props[key.strip()] = value.strip()
-    return props
+        # Legacy SHA-256 support; transparently upgrade the hash on successful login
+        print_warning("Legacy password hash detected. Your password hash will be upgraded for better security.")
+        # Add delay so brute-force attempts are computationally expensive
+        time.sleep(1)  # Artificial computational delay
+        if hashlib.sha256(provided_password.encode()).hexdigest() == stored_password:
+            # Create new PBKDF2 hash for this password
+            new_hash = hash_password(provided_password)
+            # Indicate caller should update the stored value to new_hash
+            return True, new_hash
+        else:
+            return False
 
 def get_instance_dir(instance_name=None):
     """
