@@ -10,6 +10,7 @@ instances/
 server/
 backups/
 deploy_wiki.sh
+docs/FEATURE_CATALOG.md
 
 # Logs
 *.log
