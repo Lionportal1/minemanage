@@ -528,6 +528,52 @@ def install_fabric(instance_dir, version):
         print_error(f"Failed to install Fabric: {e}")
         return False
 
+def install_forge(instance_dir, mc_version):
+    """Download and install Minecraft Forge."""
+    print_info(f"Fetching Forge version for Minecraft {mc_version}...")
+    try:
+        # Fetch promotions_slim.json
+        promo_url = "https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json"
+        with urllib.request.urlopen(promo_url) as response:
+            data = json.loads(response.read().decode())
+        
+        promos = data.get("promos", {})
+        # Try recommended first, then latest
+        forge_version = promos.get(f"{mc_version}-recommended")
+        if not forge_version:
+            forge_version = promos.get(f"{mc_version}-latest")
+            
+        if not forge_version:
+            print_error(f"No Forge version found for Minecraft {mc_version}.")
+            return False
+            
+        print_info(f"Found Forge version: {forge_version}")
+        
+        # Construct Installer URL
+        # https://maven.minecraftforge.net/net/minecraftforge/forge/1.20.1-47.2.0/forge-1.20.1-47.2.0-installer.jar
+        # Format: {mc_version}-{forge_version}
+        full_version = f"{mc_version}-{forge_version}"
+        installer_url = f"https://maven.minecraftforge.net/net/minecraftforge/forge/{full_version}/forge-{full_version}-installer.jar"
+        installer_path = os.path.join(instance_dir, "installer.jar")
+        
+        print_info(f"Downloading Forge installer from {installer_url}...")
+        download_file_with_progress(installer_url, installer_path)
+        
+        print_info("Running Forge installer (this may take a while)...")
+        # Run installer: java -jar installer.jar --installServer
+        subprocess.check_call(["java", "-jar", "installer.jar", "--installServer"], cwd=instance_dir)
+        
+        # Cleanup
+        if os.path.exists(installer_path):
+            os.remove(installer_path)
+        if os.path.exists(os.path.join(instance_dir, "installer.jar.log")):
+             os.remove(os.path.join(instance_dir, "installer.jar.log"))
+             
+        return True
+    except Exception as e:
+        print_error(f"Failed to install Forge: {e}")
+        return False
+
 def install_neoforge(instance_dir, mc_version):
     """Download and install NeoForge."""
     print_info(f"Fetching NeoForge version for Minecraft {mc_version}...")
@@ -833,6 +879,9 @@ def install_server_core(instance_name, version, server_type):
     if server_type == "neoforge":
         if not install_neoforge(instance_dir, version):
             return False
+    elif server_type == "forge":
+        if not install_forge(instance_dir, version):
+            return False
     elif server_type == "fabric":
         if not install_fabric(instance_dir, version):
             return False
@@ -971,7 +1020,7 @@ def cmd_start(args):
     # Construct command
     launch_cmd = []
     
-    if config.get("server_type") == "neoforge":
+    if config.get("server_type") == "neoforge" or config.get("server_type") == "forge":
         # NeoForge uses run.sh/run.bat and user_jvm_args.txt
         run_script = "run.bat" if os.name == 'nt' else "run.sh"
         run_path = os.path.join(server_dir, run_script)
@@ -2817,7 +2866,7 @@ def main():
     # Init command
     parser_init = subparsers.add_parser("init", help="Initialize the server")
     parser_init.add_argument("--version", help="Minecraft version (e.g., 1.20.2)")
-    parser_init.add_argument("--type", choices=["vanilla", "paper", "fabric", "neoforge"], help="Server type")
+    parser_init.add_argument("--type", choices=["vanilla", "paper", "fabric", "neoforge", "forge"], help="Server type")
     parser_init.add_argument("--force", action="store_true", help="Force download even if jar exists")
     
     # Start command
@@ -2873,7 +2922,7 @@ def main():
     parser_instance.add_argument("action", choices=["list", "create", "select", "delete"], help="Action to perform")
     parser_instance.add_argument("name", nargs="?", help="Instance name")
     parser_instance.add_argument("--version", help="Minecraft version (create only)")
-    parser_instance.add_argument("--type", choices=["vanilla", "paper", "fabric", "neoforge"], help="Server type (create only)")
+    parser_instance.add_argument("--type", choices=["vanilla", "paper", "fabric", "neoforge", "forge"], help="Server type (create only)")
 
     # Logs command
     parser_logs = subparsers.add_parser("logs", help="View server logs")
