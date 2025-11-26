@@ -1026,46 +1026,65 @@ def cmd_start(args):
         run_path = os.path.join(server_dir, run_script)
         
         if not os.path.exists(run_path):
-             print_error(f"NeoForge run script not found at {run_path}. Run 'init' first.")
-             return
-
-        # Update user_jvm_args.txt with RAM settings
-        jvm_args_path = os.path.join(server_dir, "user_jvm_args.txt")
-        
-        # Read existing args to preserve other settings
-        existing_lines = []
-        if os.path.exists(jvm_args_path):
-            with open(jvm_args_path, 'r') as f:
-                existing_lines = f.readlines()
-        
-        # Filter out old memory settings
-        new_lines = [l for l in existing_lines if not l.strip().startswith("-Xms") and not l.strip().startswith("-Xmx")]
-        
-        # Append new memory settings
-        if new_lines and not new_lines[-1].endswith('\n'):
-            new_lines[-1] += '\n'
-        new_lines.append(f"-Xms{ram_min}\n")
-        new_lines.append(f"-Xmx{ram_max}\n")
-        
-        with open(jvm_args_path, 'w') as f:
-            f.writelines(new_lines)
-            
-        # Launch command is just the script
-        # For screen/subprocess, we execute the script directly
-        # Since we set cwd=server_dir, we should use the script name relative to it
-        # But for screen, we might need absolute path or ./
-        if args.detach:
-            # Screen needs to know what to run. 
-            # If we use cwd in subprocess, screen starts in that dir.
-            # So ./run.sh should work.
-            launch_cmd = [f"./{run_script}"]
+             # Check for legacy Forge (jar file)
+             # Legacy forge (1.16.5 and older) uses a forge-x.y.z.jar
+             forge_jars = [f for f in os.listdir(server_dir) if f.startswith("forge-") and f.endswith(".jar") and "installer" not in f]
+             
+             if not forge_jars:
+                 print_error(f"NeoForge/Forge run script not found at {run_path} and no legacy Forge jar found. Run 'init' first.")
+                 return
+             
+             # Found legacy jar
+             legacy_jar = forge_jars[0]
+             print_info(f"Detected Legacy Forge JAR: {legacy_jar}")
+             
+             launch_cmd = [
+                config.get("java_path", "java"),
+                f"-Xms{ram_min}",
+                f"-Xmx{ram_max}",
+                "-jar",
+                legacy_jar,
+                "nogui"
+            ]
         else:
-            # Popen with cwd set
-            launch_cmd = [f"./{run_script}"]
-        
-        # Ensure it's executable
-        if os.name != 'nt':
-            os.chmod(run_path, 0o755)
+            # Modern Forge/NeoForge logic
+            # Update user_jvm_args.txt with RAM settings
+            jvm_args_path = os.path.join(server_dir, "user_jvm_args.txt")
+            
+            # Read existing args to preserve other settings
+            existing_lines = []
+            if os.path.exists(jvm_args_path):
+                with open(jvm_args_path, 'r') as f:
+                    existing_lines = f.readlines()
+            
+            # Filter out old memory settings
+            new_lines = [l for l in existing_lines if not l.strip().startswith("-Xms") and not l.strip().startswith("-Xmx")]
+            
+            # Append new memory settings
+            if new_lines and not new_lines[-1].endswith('\n'):
+                new_lines[-1] += '\n'
+            new_lines.append(f"-Xms{ram_min}\n")
+            new_lines.append(f"-Xmx{ram_max}\n")
+            
+            with open(jvm_args_path, 'w') as f:
+                f.writelines(new_lines)
+                
+            # Launch command is just the script
+            # For screen/subprocess, we execute the script directly
+            # Since we set cwd=server_dir, we should use the script name relative to it
+            # But for screen, we might need absolute path or ./
+            if args.detach:
+                # Screen needs to know what to run. 
+                # If we use cwd in subprocess, screen starts in that dir.
+                # So ./run.sh should work.
+                launch_cmd = [f"./{run_script}"]
+            else:
+                # Popen with cwd set
+                launch_cmd = [f"./{run_script}"]
+            
+            # Ensure it's executable
+            if os.name != 'nt':
+                os.chmod(run_path, 0o755)
 
     else:
         # Standard launch (Vanilla, Paper, Fabric)
