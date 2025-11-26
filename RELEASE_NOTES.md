@@ -1,5 +1,29 @@
 # Release Notes
 
+## v1.3.0 "The Stability & Polish Update"
+*Released: 2025-11-25*
+
+This update focuses on hardening the application's security, improving reliability, and polishing the user experience.
+
+### 🛡️ Security & Stability
+*   **Full Backups**: The `backup` command now correctly archives the **entire instance directory** (plugins, mods, configs), ensuring no data is left behind.
+*   **Reliable Process Detection**: Replaced fragile `pgrep` logic with robust `screen -ls` parsing. MineManage now reliably detects the correct server process even with multiple instances running.
+*   **Input Sanitization**: Added strict validation for instance names, filenames, and console commands to prevent injection attacks.
+*   **Login Delay**: Added a configurable `login_delay` (default 1s) to mitigate brute-force attacks on the admin password.
+*   **Download Integrity**: All downloads now verify checksums (SHA1/SHA512) to ensure file integrity.
+*   **Legacy Cleanup**: Removed support for insecure legacy SHA-256 password hashes.
+
+### 🛠 Refinements
+*   **Manual Migration**: The `migrate` logic is now a dedicated command (`minemanage migrate`) and no longer runs automatically on every start, improving performance.
+*   **Install Script**: The installer now automatically handles dependencies via `requirements.txt`.
+*   **Code Quality**: Extensive refactoring, docstrings, and removal of legacy code.
+
+### 📚 Documentation
+*   **Wiki Updates**: Updated Installation, Configuration, and Troubleshooting guides.
+*   **Dashboard Guide**: Updated to reflect the latest menu layout.
+
+---
+
 ## v1.2 "The Security & Modpack Update"
 *Released: 2025-11-25*
 
