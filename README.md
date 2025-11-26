@@ -55,6 +55,7 @@ Prefer the command line? We've got you covered:
 - `minemanage logs` — Watch the logs stream in real-time.
 - `minemanage network info` — Check your connection details.
 - `minemanage backup` — Save your world.
+- `minemanage migrate` — Migrate legacy server structure to instances.
 
 ## 🤝 Contributing
 

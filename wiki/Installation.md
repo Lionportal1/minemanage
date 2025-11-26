@@ -35,7 +35,10 @@ This will:
     git clone https://github.com/Lionportal1/minemanage.git
     cd minemanage
     ```
-2.  Install dependencies (if any are added in `requirements.txt`, currently standard library only).
+2.  Install dependencies:
+    ```bash
+    pip install -r requirements.txt
+    ```
 3.  Run the manager directly:
     ```bash
     python3 manager.py dashboard
