@@ -19,7 +19,7 @@ Before installing, ensure you have the following dependencies:
 Run the following command in your terminal:
 
 ```bash
-curl -sL https://raw.githubusercontent.com/Lionportal1/minemanage/v1.1.0/install.sh | bash
+curl -sL https://raw.githubusercontent.com/Lionportal1/minemanage/v1.2/install.sh | bash
 ```
 
 This will:
