@@ -51,8 +51,7 @@ def save_global_config(config):
     with open(CONFIG_FILE, 'w') as f:
         json.dump(config, f, indent=4)
 
-    sys.stdout.write(f"\r{output:<60}")
-    sys.stdout.flush()
+
 
 def verify_checksum(file_path, expected_hash, algorithm='sha1'):
     """Verify the checksum of a file."""
@@ -1956,7 +1955,10 @@ def dashboard_server_control():
             cmd_console(None)
         elif choice == 'l':
             cmd_logs(None)
-            input("\nPress Enter to continue...")
+            try:
+                input("\nPress Enter to continue...")
+            except KeyboardInterrupt:
+                pass
         elif choice == 'i':
             # Re-Initialize
             config = load_config()
