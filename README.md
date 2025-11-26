@@ -22,7 +22,13 @@ MineManage makes it incredibly easy to create, manage, and monitor Minecraft ser
 Get up and running with a single command:
 
 ```bash
-curl -O https://raw.githubusercontent.com/Lionportal1/minemanage/v1.4/install.sh && sudo bash install.sh
+curl -O https://raw.githubusercontent.com/Lionportal1/minemanage/main/install.sh && sudo bash install.sh
+```
+
+### Option 2: Development Build (Bleeding Edge)
+To install the latest code from the `main` branch:
+```bash
+curl -O https://raw.githubusercontent.com/Lionportal1/minemanage/main/install.sh && sudo bash install.sh --dev
 ```
 
 ### Option 2: GitHub Releases
