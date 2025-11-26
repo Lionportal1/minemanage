@@ -34,8 +34,27 @@ fi
 echo -e "\n${YELLOW}Setting up MineManage...${NC}"
 
 # Configuration
-# Use v1.3 tag for stability, or main for dev
-DOWNLOAD_URL="https://raw.githubusercontent.com/Lionportal1/minemanage/v1.3/manager.py"
+REPO="Lionportal1/minemanage"
+VERSION="v1.3" # Default fallback
+
+# Parse arguments
+if [[ "$1" == "--dev" ]]; then
+    echo -e "${YELLOW}Dev mode enabled. Installing from main branch...${NC}"
+    VERSION="main"
+else
+    echo -e "Fetching latest release version..."
+    # Try to get latest tag from GitHub API
+    LATEST_TAG=$(curl -s "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    
+    if [ -n "$LATEST_TAG" ]; then
+        VERSION="$LATEST_TAG"
+        echo -e "${GREEN}Found latest version: $VERSION${NC}"
+    else
+        echo -e "${YELLOW}Could not fetch latest version. Falling back to $VERSION.${NC}"
+    fi
+fi
+
+DOWNLOAD_URL="https://raw.githubusercontent.com/$REPO/$VERSION/manager.py"
 INSTALL_DIR="$HOME/.minemanage"
 SCRIPT_PATH="$INSTALL_DIR/manager.py"
 BIN_DIR="$HOME/.local/bin"
@@ -63,7 +82,7 @@ else
 fi
 
 # Download and install requirements
-REQ_URL="https://raw.githubusercontent.com/Lionportal1/minemanage/v1.3/requirements.txt"
+REQ_URL="https://raw.githubusercontent.com/$REPO/$VERSION/requirements.txt"
 REQ_PATH="$INSTALL_DIR/requirements.txt"
 echo -e "Downloading requirements.txt..."
 if curl -L -o "$REQ_PATH" "$REQ_URL"; then
