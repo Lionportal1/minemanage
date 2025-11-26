@@ -34,8 +34,8 @@ fi
 echo -e "\n${YELLOW}Setting up MineManage...${NC}"
 
 # Configuration
-# Use v1.2 tag for stability, or main for dev
-DOWNLOAD_URL="https://raw.githubusercontent.com/Lionportal1/minemanage/v1.2/manager.py"
+# Use v1.3 tag for stability, or main for dev
+DOWNLOAD_URL="https://raw.githubusercontent.com/Lionportal1/minemanage/v1.3/manager.py"
 INSTALL_DIR="$HOME/.minemanage"
 SCRIPT_PATH="$INSTALL_DIR/manager.py"
 BIN_DIR="$HOME/.local/bin"
@@ -63,7 +63,7 @@ else
 fi
 
 # Download and install requirements
-REQ_URL="https://raw.githubusercontent.com/Lionportal1/minemanage/v1.2/requirements.txt"
+REQ_URL="https://raw.githubusercontent.com/Lionportal1/minemanage/v1.3/requirements.txt"
 REQ_PATH="$INSTALL_DIR/requirements.txt"
 echo -e "Downloading requirements.txt..."
 if curl -L -o "$REQ_PATH" "$REQ_URL"; then
