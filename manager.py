@@ -47,39 +47,92 @@ def save_global_config(config):
     with open(CONFIG_FILE, 'w') as f:
         json.dump(config, f, indent=4)
 
-def download_file_with_progress(url, dest):
+    sys.stdout.write(f"\r{output:<60}")
+    sys.stdout.flush()
+
+def verify_checksum(file_path, expected_hash, algorithm='sha1'):
+    """Verify the checksum of a file."""
+    if not expected_hash:
+        return True
+        
+    print_info(f"Verifying {algorithm} checksum...")
     try:
-        # Set a global socket timeout if not already set, or just pass timeout to urlopen
-        with urllib.request.urlopen(url, timeout=60) as response:
-            total_size = int(response.info().get('Content-Length', -1))
+        if algorithm == 'sha1':
+            hasher = hashlib.sha1()
+        elif algorithm == 'sha256':
+            hasher = hashlib.sha256()
+        elif algorithm == 'md5':
+            hasher = hashlib.md5()
+        else:
+            print_error(f"Unsupported checksum algorithm: {algorithm}")
+            return False
             
-            with open(dest, 'wb') as out_file:
-                downloaded = 0
-                block_size = 8192
-                
-                last_update = 0
-                
-                while True:
-                    buffer = response.read(block_size)
-                    if not buffer:
-                        break
-                    
-                    out_file.write(buffer)
-                    downloaded += len(buffer)
-                    
-                    current_time = time.time()
-                    # Update max 5 times a second to avoid spamming stdout
-                    if current_time - last_update > 0.2:
-                        show_progress_manual(downloaded, total_size)
-                        last_update = current_time
-                
-                # Final update
-                show_progress_manual(downloaded, total_size)
-                print() # Newline
-                
+        with open(file_path, 'rb') as f:
+            for chunk in iter(lambda: f.read(4096), b""):
+                hasher.update(chunk)
+        
+        calculated = hasher.hexdigest()
+        if calculated.lower() == expected_hash.lower():
+            print_success("Checksum verified.")
+            return True
+        else:
+            print_error(f"Checksum mismatch! Expected: {expected_hash}, Got: {calculated}")
+            return False
     except Exception as e:
-        print() # Ensure newline if we crash mid-bar
-        raise e
+        print_error(f"Checksum verification failed: {e}")
+        return False
+
+def download_file_with_progress(url, dest, expected_hash=None, hash_algo='sha1', retries=3):
+    """Download a file with a progress bar and optional checksum verification."""
+    attempt = 0
+    while attempt <= retries:
+        try:
+            # Set a global socket timeout if not already set, or just pass timeout to urlopen
+            with urllib.request.urlopen(url, timeout=60) as response:
+                total_size = int(response.info().get('Content-Length', -1))
+                
+                with open(dest, 'wb') as out_file:
+                    downloaded = 0
+                    block_size = 8192
+                    
+                    last_update = 0
+                    
+                    while True:
+                        buffer = response.read(block_size)
+                        if not buffer:
+                            break
+                        
+                        out_file.write(buffer)
+                        downloaded += len(buffer)
+                        
+                        current_time = time.time()
+                        # Update max 5 times a second to avoid spamming stdout
+                        if current_time - last_update > 0.2:
+                            show_progress_manual(downloaded, total_size)
+                            last_update = current_time
+                    
+                    # Final update
+                    show_progress_manual(downloaded, total_size)
+                    print() # Newline
+            
+            if expected_hash:
+                if not verify_checksum(dest, expected_hash, hash_algo):
+                    print_error("Deleting corrupted file...")
+                    os.remove(dest)
+                    raise Exception("Checksum mismatch")
+            
+            # If we get here, success
+            return
+
+        except Exception as e:
+            print() # Ensure newline if we crash mid-bar
+            attempt += 1
+            if attempt <= retries:
+                print_warning(f"Download failed: {e}. Retrying ({attempt}/{retries})...")
+                time.sleep(1) # Wait a bit before retry
+            else:
+                print_error(f"Download failed after {retries} retries.")
+                raise e
 
 def show_progress_manual(downloaded, total_size):
     output = ""
@@ -97,13 +150,38 @@ def show_progress_manual(downloaded, total_size):
         else:
             output = f"Downloading: {downloaded} bytes"
             
-    # Pad with spaces to clear previous output
     sys.stdout.write(f"\r{output:<60}")
     sys.stdout.flush()
 
+def validate_instance_name(name):
+    """Validate that the instance name contains only allowed characters."""
+    if not name:
+        return False
+    # Allow alphanumeric, underscore, hyphen
+    # Prevent path traversal (..) and other special chars
+    allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
+    return all(c in allowed for c in name)
+
+def validate_filename(filename):
+    """Validate a filename to prevent path traversal."""
+    if not filename:
+        return False
+    # Basic check against path traversal
+    if ".." in filename or "/" in filename or "\\" in filename:
+        return False
+    return True
+
 # Helper Functions
 def hash_password(password):
-    """Hash a password using PBKDF2-HMAC-SHA256 with a random salt."""
+    """
+    Hash a password using PBKDF2-HMAC-SHA256 with a random salt.
+    
+    Args:
+        password (str): The password to hash.
+        
+    Returns:
+        str: The salted and hashed password string.
+    """
     salt = os.urandom(16)
     # 100,000 iterations is a reasonable balance for 2024
     pwd_hash = hashlib.pbkdf2_hmac('sha256', password.encode(), salt, 100000)
@@ -136,6 +214,16 @@ def verify_password(stored_password, provided_password):
             return False
 
 def get_instance_dir(instance_name=None):
+    """
+    Get the directory path for a specific instance.
+    
+    Args:
+        instance_name (str, optional): The name of the instance. 
+                                       Defaults to the currently active instance.
+                                       
+    Returns:
+        str: The absolute path to the instance directory.
+    """
     if instance_name:
         return os.path.join(INSTANCES_DIR, instance_name)
     config = get_global_config()
@@ -143,25 +231,34 @@ def get_instance_dir(instance_name=None):
     return os.path.join(INSTANCES_DIR, current)
 
 def load_instance_config(instance_name=None):
-    base_dir = get_instance_dir(instance_name)
-    cfg_path = os.path.join(base_dir, INSTANCE_CONFIG_FILE)
+    """
+    Load the configuration for a specific instance.
     
-    if not os.path.exists(cfg_path):
-        return {
-            "ram_min": "2G",
-            "ram_max": "4G",
-            "server_type": "paper",
-            "server_version": "1.20.2"
-        }
-    
-    with open(cfg_path, 'r') as f:
-        return json.load(f)
+    Args:
+        instance_name (str, optional): The name of the instance.
+        
+    Returns:
+        dict: The instance configuration dictionary.
+    """
+    instance_dir = get_instance_dir(instance_name)
+    config_path = os.path.join(instance_dir, INSTANCE_CONFIG_FILE)
+    if os.path.exists(config_path):
+        with open(config_path, 'r') as f:
+            return json.load(f)
+    return {}
 
 def save_instance_config(config, instance_name=None):
-    base_dir = get_instance_dir(instance_name)
-    Path(base_dir).mkdir(parents=True, exist_ok=True)
-    cfg_path = os.path.join(base_dir, INSTANCE_CONFIG_FILE)
-    with open(cfg_path, 'w') as f:
+    """
+    Save the configuration for a specific instance.
+    
+    Args:
+        config (dict): The configuration dictionary to save.
+        instance_name (str, optional): The name of the instance.
+    """
+    instance_dir = get_instance_dir(instance_name)
+    ensure_directories(instance_dir)
+    config_path = os.path.join(instance_dir, INSTANCE_CONFIG_FILE)
+    with open(config_path, 'w') as f:
         json.dump(config, f, indent=4)
 
 def migrate_to_instances():
@@ -693,6 +790,9 @@ def cmd_modpacks(args):
             
         target = args.target
         if target.endswith(".mrpack"):
+            if not validate_filename(target):
+                print_error("Invalid filename. Path traversal is not allowed.")
+                return
             if not os.path.exists(target):
                 print_error(f"File not found: {target}")
                 return
@@ -1060,9 +1160,14 @@ def cmd_restore(args):
             return
     else:
         target_backup = args.file
-        if target_backup not in backups:
-            print_error(f"Backup {target_backup} not found.")
+        if not validate_filename(target_backup):
+            print_error("Invalid filename. Path traversal is not allowed.")
             return
+
+    backup_path = os.path.join(BACKUP_DIR, target_backup)
+    if not os.path.exists(backup_path):
+        print_error(f"Backup {target_backup} not found.")
+        return
 
     print_info(f"Restoring {target_backup}...")
     print(f"{Colors.WARNING}WARNING: This will delete the current world data.{Colors.ENDC}")
@@ -2421,14 +2526,8 @@ def cmd_network(args):
         
         # Port
         server_dir = get_instance_dir()
-        prop_file = os.path.join(server_dir, "server.properties")
-        port = "25565 (Default)"
-        if os.path.exists(prop_file):
-            with open(prop_file, 'r') as f:
-                for line in f:
-                    if line.strip().startswith("server-port="):
-                        port = line.strip().split("=")[1]
-                        break
+        props = read_server_properties(server_dir)
+        port = props.get("server-port", "25565 (Default)")
         print(f"Server Port: {Colors.YELLOW}{port}{Colors.ENDC}")
         
     elif args.action == "set-port":
@@ -2625,8 +2724,8 @@ def cmd_instance(args):
             print_error("Usage: instance create <name> [--version <ver>] [--type <type>]")
             return
         
-        # Validate name (alphanumeric + underscore + hyphen)
-        if not all(c.isalnum() or c in ('_', '-') for c in args.name):
+        # Validate name
+        if not validate_instance_name(args.name):
             print_error("Instance name must be alphanumeric (underscores and hyphens allowed).")
             return
             
