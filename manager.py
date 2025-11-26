@@ -2016,7 +2016,7 @@ def dashboard_server_control():
             if not running:
                 class Args:
                     ram = None
-                    detach = True
+                    attach = False
                 cmd_start(Args())
                 input("\nPress Enter to continue...")
             else:
@@ -2035,7 +2035,7 @@ def dashboard_server_control():
                 time.sleep(2)
             class Args:
                 ram = None
-                detach = True
+                attach = False
             cmd_start(Args())
             input("\nPress Enter to continue...")
         elif choice == 'k':
