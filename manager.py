@@ -550,10 +550,25 @@ def install_forge(instance_dir, mc_version):
         print_info(f"Found Forge version: {forge_version}")
         
         # Construct Installer URL
-        # https://maven.minecraftforge.net/net/minecraftforge/forge/1.20.1-47.2.0/forge-1.20.1-47.2.0-installer.jar
-        # Format: {mc_version}-{forge_version}
-        full_version = f"{mc_version}-{forge_version}"
-        installer_url = f"https://maven.minecraftforge.net/net/minecraftforge/forge/{full_version}/forge-{full_version}-installer.jar"
+        # Modern (1.12.2+): https://maven.minecraftforge.net/net/minecraftforge/forge/{mc_version}-{forge_version}/forge-{mc_version}-{forge_version}-installer.jar
+        # Legacy (pre-1.12): https://maven.minecraftforge.net/net/minecraftforge/forge/{mc_version}-{forge_version}-{mc_version}/forge-{mc_version}-{forge_version}-{mc_version}-installer.jar
+        # Even older: Different pattern entirely
+        
+        # Parse MC version to determine URL structure
+        version_parts = mc_version.split('.')
+        major = int(version_parts[0]) if len(version_parts) > 0 else 1
+        minor = int(version_parts[1]) if len(version_parts) > 1 else 0
+        
+        # For very old versions (1.7.10 and below), the URL structure is different
+        if major == 1 and minor <= 7:
+            # Format: https://maven.minecraftforge.net/net/minecraftforge/forge/{mc_version}-{forge_version}-{mc_version}/forge-{mc_version}-{forge_version}-{mc_version}-installer.jar
+            full_version = f"{mc_version}-{forge_version}-{mc_version}"
+            installer_url = f"https://maven.minecraftforge.net/net/minecraftforge/forge/{full_version}/forge-{full_version}-installer.jar"
+        else:
+            # Modern format
+            full_version = f"{mc_version}-{forge_version}"
+            installer_url = f"https://maven.minecraftforge.net/net/minecraftforge/forge/{full_version}/forge-{full_version}-installer.jar"
+        
         installer_path = os.path.join(instance_dir, "installer.jar")
         
         print_info(f"Downloading Forge installer from {installer_url}...")
