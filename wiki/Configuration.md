@@ -26,7 +26,7 @@ Located in `~/.minemanage/instances/<name>/instance.json`. Controls settings spe
 | :--- | :--- | :--- |
 | `ram_min` | Minimum RAM allocation (Xms). | `2G` |
 | `ram_max` | Maximum RAM allocation (Xmx). | `4G` |
-| `server_type` | Loader type (`vanilla`, `paper`, `fabric`, `neoforge`). | `paper` |
+| `server_type` | Loader type (`vanilla`, `paper`, `fabric`, `neoforge`, `forge`). | `paper` |
 | `server_version` | Minecraft version. | `1.20.4` |
 
 **CLI Command:**

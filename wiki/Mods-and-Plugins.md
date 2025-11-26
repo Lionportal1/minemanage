@@ -4,7 +4,7 @@ MineManage integrates directly with **Modrinth** to let you search and install c
 
 ## Mods
 
-**Note**: Mods require a **Fabric** or **NeoForge** server type.
+**Note**: Mods require a **Fabric**, **NeoForge**, or **Forge** server type.
 
 ### Search
 ```bash

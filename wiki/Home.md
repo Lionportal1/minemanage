@@ -1,10 +1,10 @@
 # Welcome to the MineManage Wiki!
 
-**MineManage** is a friendly, all-in-one CLI tool for managing your local Minecraft servers. It supports **Vanilla**, **Paper**, **Fabric**, and **NeoForge** servers, making it easy to create, configure, and play.
+**MineManage** is a friendly, all-in-one CLI tool for managing your local Minecraft servers. It supports **Vanilla**, **Paper**, **Fabric**, **NeoForge**, and **Forge** servers, making it easy to create, configure, and play.
 
 ## Key Features
 
-*   **Multi-Loader Support**: Install Vanilla, Paper, Fabric, or NeoForge with a single command.
+*   **Multi-Loader Support**: Install Vanilla, Paper, Fabric, NeoForge, or Forge with a single command.
 *   **Instance Management**: Create and switch between multiple server instances easily.
 *   **Mod & Plugin Manager**: Search and install mods and plugins directly from Modrinth.
 *   **Modpack Support**: Import `.mrpack` modpacks or install them from Modrinth.

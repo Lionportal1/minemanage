@@ -9,6 +9,8 @@ To create your first server instance, use the `init` command or the interactive 
 **CLI Method:**
 ```bash
 minemanage init --version 1.20.4 --type paper
+# OR
+minemanage init --version 1.20.1 --type forge
 ```
 
 **Dashboard Method:**
