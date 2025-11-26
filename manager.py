@@ -2152,7 +2152,7 @@ def dashboard_instance_manager():
             name = input("Enter new instance name: ").strip()
             if name:
                 version = input("Enter Minecraft version (default 1.20.4): ").strip()
-                stype = input("Enter server type (vanilla/paper/fabric/neoforge, default paper): ").strip().lower()
+                stype = input("Enter server type (vanilla/paper/fabric/neoforge/forge, default paper): ").strip().lower()
                 
                 args = argparse.Namespace(
                     action="create", 
