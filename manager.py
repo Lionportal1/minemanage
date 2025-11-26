@@ -30,6 +30,10 @@ LOGS_DIR = "logs"
 EULA_FILE = "eula.txt"
 SERVER_JAR = "server.jar"
 
+# Configuration Keys
+GLOBAL_CONFIG_KEYS = ["java_path", "current_instance", "admin_password_hash", "login_delay"]
+INSTANCE_CONFIG_KEYS = ["ram_min", "ram_max", "server_type", "server_version"]
+
 def get_global_config():
     if not os.path.exists(CONFIG_FILE):
         default_config = {
@@ -288,58 +292,56 @@ def save_instance_config(config, instance_name=None):
     with open(config_path, 'w') as f:
         json.dump(config, f, indent=4)
 
-def migrate_to_instances():
+def cmd_migrate(args):
+    """Migrate legacy server structure to instances."""
     old_server_dir = "server"
-    # Migrate if 'server' exists and 'instances/default' does NOT exist.
-    # This handles the case where 'instances' might exist (e.g. user created one manually or via command before migration ran?)
-    # Actually, if 'instances' exists, we should be careful.
-    # But if 'server' exists, it's legacy data. We should move it to 'default'.
-    
     default_dir = os.path.join(INSTANCES_DIR, "default")
     
-    if os.path.exists(old_server_dir) and not os.path.exists(default_dir):
-        print("Migrating to instance-based structure...")
-        Path(default_dir).mkdir(parents=True, exist_ok=True)
+    if not os.path.exists(old_server_dir):
+        print_info("No legacy 'server' directory found. Nothing to migrate.")
+        return
+
+    if os.path.exists(default_dir):
+        print_error(f"Target directory {default_dir} already exists. Cannot migrate safely.")
+        return
+
+    print_info("Migrating to instance-based structure...")
+    Path(default_dir).mkdir(parents=True, exist_ok=True)
+    
+    for item in os.listdir(old_server_dir):
+        s = os.path.join(old_server_dir, item)
+        d = os.path.join(default_dir, item)
+        if os.path.exists(d):
+            continue
+        shutil.move(s, d)
+    
+    try:
+        os.rmdir(old_server_dir)
+    except OSError:
+        pass
+    
+    if os.path.exists(CONFIG_FILE):
+        with open(CONFIG_FILE, 'r') as f:
+            old_cfg = json.load(f)
         
-        for item in os.listdir(old_server_dir):
-            s = os.path.join(old_server_dir, item)
-            d = os.path.join(default_dir, item)
-            if os.path.exists(d):
-                continue
-            shutil.move(s, d)
+        i_cfg = {
+            "ram_min": old_cfg.get("ram_min", "2G"),
+            "ram_max": old_cfg.get("ram_max", "4G"),
+            "server_type": old_cfg.get("server_type", "paper"),
+            "server_version": old_cfg.get("server_version", "1.20.2")
+        }
+        save_instance_config(i_cfg, "default")
         
-        try:
-            os.rmdir(old_server_dir)
-        except OSError:
-            # Directory might not be empty if we skipped some files
-            pass
+        g_cfg = get_global_config()
+        g_cfg["current_instance"] = "default"
+        if "admin_password_hash" in old_cfg:
+            g_cfg["admin_password_hash"] = old_cfg["admin_password_hash"]
         
-        if os.path.exists(CONFIG_FILE):
-            with open(CONFIG_FILE, 'r') as f:
-                old_cfg = json.load(f)
-            
-            i_cfg = {
-                "ram_min": old_cfg.get("ram_min", "2G"),
-                "ram_max": old_cfg.get("ram_max", "4G"),
-                "server_type": old_cfg.get("server_type", "paper"),
-                "server_version": old_cfg.get("server_version", "1.20.2")
-            }
-            save_instance_config(i_cfg, "default")
-            
-            # Update global config to point to default
-            # We need to re-read global config to preserve other keys if any
-            # But here we are likely in a state where we want to set defaults
-            g_cfg = get_global_config()
-            g_cfg["current_instance"] = "default"
-            # Preserve admin password if it was in old config
-            if "admin_password_hash" in old_cfg:
-                g_cfg["admin_password_hash"] = old_cfg["admin_password_hash"]
-            
-            save_global_config(g_cfg)
-        print("Migration complete.")
+        save_global_config(g_cfg)
+    print_success("Migration complete.")
 
 def load_config(instance_name=None):
-    migrate_to_instances()
+    # Migration is now manual via 'migrate' command
     g_cfg = get_global_config()
     target = instance_name if instance_name else g_cfg.get("current_instance")
     i_cfg = load_instance_config(target)
@@ -347,12 +349,10 @@ def load_config(instance_name=None):
     return g_cfg
 
 def save_config(config, instance_name=None):
-    g_keys = ["java_path", "current_instance", "admin_password_hash"]
-    g_cfg = {k: config[k] for k in g_keys if k in config}
+    g_cfg = {k: config[k] for k in GLOBAL_CONFIG_KEYS if k in config}
     save_global_config(g_cfg)
     
-    i_keys = ["ram_min", "ram_max", "server_type", "server_version"]
-    i_cfg = {k: config[k] for k in i_keys if k in config}
+    i_cfg = {k: config[k] for k in INSTANCE_CONFIG_KEYS if k in config}
     save_instance_config(i_cfg, instance_name)
 
 def ensure_directories(instance_dir=None):
@@ -403,6 +403,12 @@ def is_server_running():
 def send_command(cmd):
     if not is_server_running():
         print("Server is not running.")
+        return False
+    
+    # Sanitize input: prevent control characters (except newline if needed, but usually cmd is single line)
+    # Allow printable characters only
+    if any(ord(c) < 32 or ord(c) == 127 for c in cmd):
+        print_error("Invalid characters in command.")
         return False
     
     subprocess.run(["screen", "-S", get_screen_name(), "-X", "stuff", f"{cmd}\n"])
@@ -2885,6 +2891,9 @@ def main():
     # Dashboard command
     parser_dashboard = subparsers.add_parser("dashboard", help="Open TUI dashboard")
 
+    # Migrate command
+    parser_migrate = subparsers.add_parser("migrate", help="Migrate legacy server to instances")
+
     args = parser.parse_args()
     
     if args.command == "init":
@@ -2919,6 +2928,8 @@ def main():
         cmd_modpacks(args)
     elif args.command == "dashboard":
         cmd_dashboard(args)
+    elif args.command == "migrate":
+        cmd_migrate(args)
     else:
         parser.print_help()
 
