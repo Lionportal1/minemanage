@@ -2785,8 +2785,7 @@ def cmd_instance(args):
                 print_error(f"Failed to delete instance: {e}")
 
 def main():
-    # Ensure migration runs before anything else
-    migrate_to_instances()
+
 
     parser = argparse.ArgumentParser(description="MineManage CLI")
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
