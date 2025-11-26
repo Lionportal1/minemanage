@@ -40,6 +40,13 @@ source ~/.zshrc
 *   MineManage uses `screen` to manage sessions. If you started the server manually with `java -jar`, MineManage won't see it.
 *   Kill the manual process and start with `minemanage start`.
 
+## Migration Issues
+
+**Issue**: My old server files are missing after update.
+**Solution**:
+*   Run `minemanage migrate` to move legacy server files to the new instance structure.
+*   Check the `instances/default` directory.
+
 ## Getting Help
 
 If you're still stuck, please [open an issue](https://github.com/Lionportal1/minemanage/issues) on GitHub.

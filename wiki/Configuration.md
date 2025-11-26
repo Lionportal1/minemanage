@@ -10,7 +10,8 @@ Located in `~/.minemanage/config.json`. Controls settings that apply to the laun
 | :--- | :--- | :--- |
 | `java_path` | Path to the Java executable. | `java` |
 | `current_instance` | The currently active server instance. | `default` |
-| `admin_password_hash` | PBKDF2 hash of the admin password (for `kill` command). | `""` |
+| `admin_password_hash` | PBKDF2 hash of the admin password. Legacy SHA-256 is NOT supported. | `""` |
+| `login_delay` | Delay in seconds after a login attempt (anti-brute-force). | `1.0` |
 
 **CLI Command:**
 ```bash
