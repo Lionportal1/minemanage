@@ -47,7 +47,42 @@ def save_global_config(config):
     with open(CONFIG_FILE, 'w') as f:
         json.dump(config, f, indent=4)
 
-def download_file_with_progress(url, dest):
+    sys.stdout.write(f"\r{output:<60}")
+    sys.stdout.flush()
+
+def verify_checksum(file_path, expected_hash, algorithm='sha1'):
+    """Verify the checksum of a file."""
+    if not expected_hash:
+        return True
+        
+    print_info(f"Verifying {algorithm} checksum...")
+    try:
+        if algorithm == 'sha1':
+            hasher = hashlib.sha1()
+        elif algorithm == 'sha256':
+            hasher = hashlib.sha256()
+        elif algorithm == 'md5':
+            hasher = hashlib.md5()
+        else:
+            print_error(f"Unsupported checksum algorithm: {algorithm}")
+            return False
+            
+        with open(file_path, 'rb') as f:
+            for chunk in iter(lambda: f.read(4096), b""):
+                hasher.update(chunk)
+        
+        calculated = hasher.hexdigest()
+        if calculated.lower() == expected_hash.lower():
+            print_success("Checksum verified.")
+            return True
+        else:
+            print_error(f"Checksum mismatch! Expected: {expected_hash}, Got: {calculated}")
+            return False
+    except Exception as e:
+        print_error(f"Checksum verification failed: {e}")
+        return False
+
+def download_file_with_progress(url, dest, expected_hash=None, hash_algo='sha1'):
     try:
         # Set a global socket timeout if not already set, or just pass timeout to urlopen
         with urllib.request.urlopen(url, timeout=60) as response:
@@ -76,6 +111,12 @@ def download_file_with_progress(url, dest):
                 # Final update
                 show_progress_manual(downloaded, total_size)
                 print() # Newline
+        
+        if expected_hash:
+            if not verify_checksum(dest, expected_hash, hash_algo):
+                print_error("Deleting corrupted file...")
+                os.remove(dest)
+                raise Exception("Checksum mismatch")
                 
     except Exception as e:
         print() # Ensure newline if we crash mid-bar
@@ -97,9 +138,26 @@ def show_progress_manual(downloaded, total_size):
         else:
             output = f"Downloading: {downloaded} bytes"
             
-    # Pad with spaces to clear previous output
     sys.stdout.write(f"\r{output:<60}")
     sys.stdout.flush()
+
+def validate_instance_name(name):
+    """Validate that the instance name contains only allowed characters."""
+    if not name:
+        return False
+    # Allow alphanumeric, underscore, hyphen
+    # Prevent path traversal (..) and other special chars
+    allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
+    return all(c in allowed for c in name)
+
+def validate_filename(filename):
+    """Validate a filename to prevent path traversal."""
+    if not filename:
+        return False
+    # Basic check against path traversal
+    if ".." in filename or "/" in filename or "\\" in filename:
+        return False
+    return True
 
 # Helper Functions
 def hash_password(password):
@@ -110,16 +168,22 @@ def hash_password(password):
     return f"{salt.hex()}${pwd_hash.hex()}"
 
 def verify_password(stored_password, provided_password):
-    """Verify a password against the stored hash (supports legacy SHA-256)."""
+    """Verify a password against the stored hash."""
+    # Configurable delay to slow down brute-force attacks
+    config = get_global_config()
+    delay = config.get("login_delay", 1.0)
+    time.sleep(delay)
+
     if "$" in stored_password:
         salt_hex, hash_hex = stored_password.split("$")
         salt = bytes.fromhex(salt_hex)
         pwd_hash = hashlib.pbkdf2_hmac('sha256', provided_password.encode(), salt, 100000)
         return pwd_hash.hex() == hash_hex
     else:
-        # Legacy SHA-256 support
-        print_warning("Legacy password hash detected. Please reset your password for better security.")
-        return hashlib.sha256(provided_password.encode()).hexdigest() == stored_password
+        # Legacy SHA-256 support REMOVED for security
+        print_error("Legacy password hash detected. Login refused.")
+        print_error("Please reset your password using 'config set-password'.")
+        return False
 
 def get_instance_dir(instance_name=None):
     if instance_name:
@@ -679,6 +743,9 @@ def cmd_modpacks(args):
             
         target = args.target
         if target.endswith(".mrpack"):
+            if not validate_filename(target):
+                print_error("Invalid filename. Path traversal is not allowed.")
+                return
             if not os.path.exists(target):
                 print_error(f"File not found: {target}")
                 return
@@ -1046,9 +1113,14 @@ def cmd_restore(args):
             return
     else:
         target_backup = args.file
-        if target_backup not in backups:
-            print_error(f"Backup {target_backup} not found.")
+        if not validate_filename(target_backup):
+            print_error("Invalid filename. Path traversal is not allowed.")
             return
+
+    backup_path = os.path.join(BACKUP_DIR, target_backup)
+    if not os.path.exists(backup_path):
+        print_error(f"Backup {target_backup} not found.")
+        return
 
     print_info(f"Restoring {target_backup}...")
     print(f"{Colors.WARNING}WARNING: This will delete the current world data.{Colors.ENDC}")
@@ -2611,8 +2683,8 @@ def cmd_instance(args):
             print_error("Usage: instance create <name> [--version <ver>] [--type <type>]")
             return
         
-        # Validate name (alphanumeric + underscore + hyphen)
-        if not all(c.isalnum() or c in ('_', '-') for c in args.name):
+        # Validate name
+        if not validate_instance_name(args.name):
             print_error("Instance name must be alphanumeric (underscores and hyphens allowed).")
             return
             

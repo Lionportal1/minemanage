@@ -1,0 +1,27 @@
+# MineManage Dependencies
+# Most dependencies are part of the Python Standard Library.
+# This file is provided for completeness and future expansion.
+
+# Standard Library (No install needed):
+# argparse
+# json
+# os
+# sys
+# subprocess
+# urllib
+# pathlib
+# shutil
+# datetime
+# time
+# hashlib
+# getpass
+# socket
+# struct
+# xml.etree.ElementTree
+# readline
+# zipfile
+
+# External Dependencies (Optional/Future):
+# requests  # For easier HTTP requests
+# click     # For better CLI handling
+# rich      # For better TUI/Colors
