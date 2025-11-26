@@ -1073,7 +1073,7 @@ def cmd_start(args):
             # For screen/subprocess, we execute the script directly
             # Since we set cwd=server_dir, we should use the script name relative to it
             # But for screen, we might need absolute path or ./
-            if args.detach:
+            if not args.attach:
                 # Screen needs to know what to run. 
                 # If we use cwd in subprocess, screen starts in that dir.
                 # So ./run.sh should work.
@@ -1100,38 +1100,41 @@ def cmd_start(args):
             SERVER_JAR,
             "nogui"
         ]
-    
-    screen_name = get_screen_name()
-    
-    if args.detach:
-        print_header(f"Starting server in detached mode (screen session: {screen_name})...")
-        # screen -dmS name java ...
-        screen_cmd = ["screen", "-dmS", screen_name] + launch_cmd
-        subprocess.run(screen_cmd, cwd=server_dir)
-        print_success(f"Server started in background. Use 'screen -r {screen_name}' to attach.")
-    else:
-        print_header(f"Starting server with: {' '.join(launch_cmd)}")
-        print_info("Press Ctrl+C to stop safely.")
+
+    # Execute
+    if not args.attach:
+        # Run in screen
+        screen_name = get_screen_name()
+        
+        # Check if already running
+        if is_server_running():
+            print_error("Server is already running.")
+            return
+
+        print_info(f"Starting server in detached screen session '{screen_name}'...")
+        
+        # Construct screen command
+        # screen -dmS <name> <command>
+        # We need to run the command inside the server directory
+        
+        # For screen, we want to execute the command.
+        # If launch_cmd is a list, join it.
+        cmd_str = " ".join(launch_cmd)
         
         try:
-            process = subprocess.Popen(
-                launch_cmd, 
-                cwd=server_dir, 
-                stdin=subprocess.PIPE, 
-                stdout=sys.stdout, 
-                stderr=sys.stderr,
-                text=True
-            )
-            process.wait()
+            subprocess.run(["screen", "-dmS", screen_name, "bash", "-c", cmd_str], cwd=server_dir, check=True)
+            print_success("Server started.")
+            print_info("Use 'minemanage console' to view the console.")
+        except subprocess.CalledProcessError as e:
+            print_error(f"Failed to start screen session: {e}")
+            
+    else:
+        # Run in foreground
+        print_info("Starting server in foreground (Ctrl+C to stop)...")
+        try:
+            subprocess.run(launch_cmd, cwd=server_dir)
         except KeyboardInterrupt:
-            print_info("\nReceived stop signal. Stopping server...")
-            if process.poll() is None:
-                try:
-                    process.communicate(input="stop\n", timeout=30)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    print_error("Server forced to stop.")
-            print_success("Server stopped.")
+            print_info("\nServer stopped.")
 
 def cmd_stop(args):
     if is_server_running():
@@ -1242,7 +1245,13 @@ def cmd_restore(args):
         print_error("No backups found.")
         return
 
-    if not args.file:
+    target_backup = None
+    if args.filename:
+        target_backup = args.filename
+    elif args.file:
+        target_backup = args.file
+
+    if not target_backup:
         print_header("Available backups:")
         for i, b in enumerate(backups):
             print(f"{i+1}. {b}")
@@ -1256,11 +1265,7 @@ def cmd_restore(args):
         except ValueError:
             print_error("Invalid input.")
             return
-    else:
-        target_backup = args.file
-        if not validate_filename(target_backup):
-            print_error("Invalid filename. Path traversal is not allowed.")
-            return
+
 
     backup_path = os.path.join(BACKUP_DIR, target_backup)
     if not os.path.exists(backup_path):
@@ -1469,27 +1474,48 @@ def cmd_users(args):
     username = args.username
 
     server_dir = get_instance_dir()
-    json_file = os.path.join(server_dir, f"{list_type}.json") # whitelist.json or ops.json
+    
+    # Map list_type to filename
+    if list_type == "bans":
+        json_file = os.path.join(server_dir, "banned-players.json")
+    else:
+        json_file = os.path.join(server_dir, f"{list_type}.json") # whitelist.json or ops.json
 
     # If server is running, use console commands
     if is_server_running():
         if action == "list":
-            send_command(f"{list_type} list")
+            cmd = f"{list_type} list"
+            if list_type == "bans":
+                cmd = "banlist players"
+            send_command(cmd)
             # We can't easily capture output from screen, so we just say check console/logs
-            print_info(f"Sent '{list_type} list' to server. Check logs or console.")
+            print_info(f"Sent '{cmd}' to server. Check logs or console.")
         elif action == "add":
             if not username:
                 print_error("Username required.")
                 return
             # For ops, command is 'op', for whitelist it's 'whitelist add'
-            cmd = f"op {username}" if list_type == "ops" else f"whitelist add {username}"
+            if list_type == "ops":
+                cmd = f"op {username}"
+            elif list_type == "bans":
+                cmd = f"ban {username}"
+            else:
+                cmd = f"whitelist add {username}"
+            
             send_command(cmd)
             print_success(f"Sent '{cmd}' to server.")
         elif action == "remove":
             if not username:
                 print_error("Username required.")
                 return
-            cmd = f"deop {username}" if list_type == "ops" else f"whitelist remove {username}"
+                
+            if list_type == "ops":
+                cmd = f"deop {username}"
+            elif list_type == "bans":
+                cmd = f"pardon {username}"
+            else:
+                cmd = f"whitelist remove {username}"
+                
             send_command(cmd)
             print_success(f"Sent '{cmd}' to server.")
         return
@@ -2263,6 +2289,28 @@ def cmd_plugins(args):
             for p in plugins:
                 print(f"- {p}")
     
+    elif args.action == "search":
+        if not args.target:
+            print_error("Usage: plugins search <query>")
+            return
+            
+        config = load_config()
+        version = config.get("server_version")
+        # For plugins, we assume paper/spigot/bukkit compatibility
+        loaders = ["paper", "spigot", "bukkit"]
+        
+        print_info(f"Searching Modrinth for plugin '{args.target}' ({version})...")
+        hits = search_modrinth(args.target, version, loaders, project_type="plugin")
+        
+        if not hits:
+            print_error("No compatible plugins found.")
+            return
+            
+        print_header("Search Results:")
+        for i, hit in enumerate(hits):
+            print(f"[{i+1}] {hit['title']} ({hit['author']}) - {hit['description'][:50]}...")
+            print(f"    Slug: {Colors.CYAN}{hit['slug']}{Colors.ENDC}")
+
     elif args.action == "install":
         if not args.target:
             print_error("Usage: plugins install <url|name>")
@@ -2438,6 +2486,27 @@ def cmd_mods(args):
             for f in files:
                 print(f" - {f}")
                 
+    elif args.action == "search":
+        if not args.target:
+            print_error("Usage: mods search <query>")
+            return
+            
+        config = load_config()
+        version = config.get("server_version")
+        loader = config.get("server_type", "vanilla").lower()
+        
+        print_info(f"Searching Modrinth for '{args.target}' ({loader} {version})...")
+        hits = search_modrinth(args.target, version, loader, project_type="mod")
+        
+        if not hits:
+            print_error("No compatible mods found.")
+            return
+            
+        print_header("Search Results:")
+        for i, hit in enumerate(hits):
+            print(f"[{i+1}] {hit['title']} ({hit['author']}) - {hit['description'][:50]}...")
+            print(f"    Slug: {Colors.CYAN}{hit['slug']}{Colors.ENDC}")
+
     elif args.action == "install":
         if not args.target:
             print_error("Usage: mods install <url|name>")
@@ -2781,7 +2850,6 @@ def cmd_instance(args):
     current = config.get("current_instance", "default")
     
     if args.action == "list":
-        print_header("Available Instances:")
         if not os.path.exists(INSTANCES_DIR):
             print_info("No instances found.")
             return
@@ -2891,7 +2959,7 @@ def main():
     # Start command
     parser_start = subparsers.add_parser("start", help="Start the server")
     parser_start.add_argument("--ram", help="RAM allocation (e.g. 4G)")
-    parser_start.add_argument("--detach", action="store_true", help="Run in background using screen")
+    parser_start.add_argument("--attach", action="store_true", help="Run in foreground (attached)")
     
     # Stop command
     parser_stop = subparsers.add_parser("stop", help="Stop the server")
@@ -2907,7 +2975,8 @@ def main():
 
     # Restore command
     parser_restore = subparsers.add_parser("restore", help="Restore a backup")
-    parser_restore.add_argument("--file", help="Backup filename to restore")
+    parser_restore.add_argument("filename", nargs="?", help="Backup filename to restore")
+    parser_restore.add_argument("--file", help="Backup filename to restore (deprecated)")
 
     # Config command
     parser_config = subparsers.add_parser("config", help="Manage configuration")
@@ -2917,18 +2986,18 @@ def main():
 
     # Users command
     parser_users = subparsers.add_parser("users", help="Manage whitelist and ops")
-    parser_users.add_argument("list_type", choices=["whitelist", "ops"], help="List to modify")
+    parser_users.add_argument("list_type", choices=["whitelist", "ops", "bans"], help="List to modify")
     parser_users.add_argument("action", choices=["add", "remove", "list"], help="Action to perform")
     parser_users.add_argument("username", nargs="?", help="Username")
 
     # Plugins command
     parser_plugins = subparsers.add_parser("plugins", help="Manage plugins")
-    parser_plugins.add_argument("action", choices=["list", "install", "remove"], help="Action to perform")
+    parser_plugins.add_argument("action", choices=["list", "install", "remove", "search"], help="Action to perform")
     parser_plugins.add_argument("target", nargs="?", help="Plugin URL (install) or Filename (remove)")
 
     # Mods command
     parser_mods = subparsers.add_parser("mods", help="Manage mods")
-    parser_mods.add_argument("action", choices=["list", "install", "remove"], help="Action to perform")
+    parser_mods.add_argument("action", choices=["list", "install", "remove", "search"], help="Action to perform")
     parser_mods.add_argument("target", nargs="?", help="Mod URL (install) or Filename (remove)")
 
     # Network command
