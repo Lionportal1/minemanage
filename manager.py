@@ -1101,6 +1101,41 @@ def cmd_start(args):
             "nogui"
         ]
 
+    # Execute
+    if not args.attach:
+        # Run in screen
+        screen_name = get_screen_name()
+        
+        # Check if already running
+        if is_server_running():
+            print_error("Server is already running.")
+            return
+
+        print_info(f"Starting server in detached screen session '{screen_name}'...")
+        
+        # Construct screen command
+        # screen -dmS <name> <command>
+        # We need to run the command inside the server directory
+        
+        # For screen, we want to execute the command.
+        # If launch_cmd is a list, join it.
+        cmd_str = " ".join(launch_cmd)
+        
+        try:
+            subprocess.run(["screen", "-dmS", screen_name, "bash", "-c", cmd_str], cwd=server_dir, check=True)
+            print_success("Server started.")
+            print_info("Use 'minemanage console' to view the console.")
+        except subprocess.CalledProcessError as e:
+            print_error(f"Failed to start screen session: {e}")
+            
+    else:
+        # Run in foreground
+        print_info("Starting server in foreground (Ctrl+C to stop)...")
+        try:
+            subprocess.run(launch_cmd, cwd=server_dir)
+        except KeyboardInterrupt:
+            print_info("\nServer stopped.")
+
 def cmd_stop(args):
     if is_server_running():
         print_info("Stopping server...")
@@ -1210,7 +1245,13 @@ def cmd_restore(args):
         print_error("No backups found.")
         return
 
-    if not args.file:
+    target_backup = None
+    if args.filename:
+        target_backup = args.filename
+    elif args.file:
+        target_backup = args.file
+
+    if not target_backup:
         print_header("Available backups:")
         for i, b in enumerate(backups):
             print(f"{i+1}. {b}")
@@ -1224,11 +1265,7 @@ def cmd_restore(args):
         except ValueError:
             print_error("Invalid input.")
             return
-    else:
-        target_backup = args.file
-        if not validate_filename(target_backup):
-            print_error("Invalid filename. Path traversal is not allowed.")
-            return
+
 
     backup_path = os.path.join(BACKUP_DIR, target_backup)
     if not os.path.exists(backup_path):
