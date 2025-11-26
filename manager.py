@@ -217,6 +217,28 @@ def verify_password(stored_password, provided_password):
         else:
             return False
 
+def read_server_properties(server_dir):
+    """
+    Read server.properties into a dictionary.
+    
+    Args:
+        server_dir (str): Path to the server directory.
+        
+    Returns:
+        dict: Dictionary of properties.
+    """
+    props = {}
+    props_file = os.path.join(server_dir, "server.properties")
+    if os.path.exists(props_file):
+        with open(props_file, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    if "=" in line:
+                        k, v = line.split("=", 1)
+                        props[k.strip()] = v.strip()
+    return props
+
 def get_instance_dir(instance_name=None):
     """
     Get the directory path for a specific instance.
