@@ -18,7 +18,9 @@ The dashboard is divided into several sections:
 *   **[X] Stop**: Gracefully stops the server.
 *   **[K]ill**: Forcefully kills the server process (requires admin password).
 *   **[C]onsole**: Attaches to the server console. Press `Ctrl+A` then `D` to detach.
+*   **[C]onsole**: Attaches to the server console. Press `Ctrl+A` then `D` to detach.
 *   **[L]ogs**: Views the latest server logs (`tail -f`). Press `Ctrl+C` to exit.
+*   **[I]nitialize**: Re-install or initialize the server (useful for fixing broken installs).
 
 ### 2. Content Management
 *   **[M]ods**: Search, install, and remove mods.

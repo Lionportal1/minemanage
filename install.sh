@@ -62,6 +62,19 @@ else
     fi
 fi
 
+# Download and install requirements
+REQ_URL="https://raw.githubusercontent.com/Lionportal1/minemanage/v1.2/requirements.txt"
+REQ_PATH="$INSTALL_DIR/requirements.txt"
+echo -e "Downloading requirements.txt..."
+if curl -L -o "$REQ_PATH" "$REQ_URL"; then
+    echo -e "Installing dependencies..."
+    if pip3 install -r "$REQ_PATH"; then
+        echo -e "${GREEN}Dependencies installed.${NC}"
+    else
+        echo -e "${YELLOW}Warning: Failed to install dependencies. You may need to run 'pip3 install -r $REQ_PATH' manually.${NC}"
+    fi
+fi
+
 # Make executable
 chmod +x "$SCRIPT_PATH"
 echo -e "Made manager.py executable."
