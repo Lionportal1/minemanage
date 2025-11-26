@@ -22,7 +22,7 @@ MineManage makes it incredibly easy to create, manage, and monitor Minecraft ser
 Get up and running with a single command:
 
 ```bash
-curl -O https://raw.githubusercontent.com/Lionportal1/minemanage/v1.3/install.sh && sudo bash install.sh
+curl -O https://raw.githubusercontent.com/Lionportal1/minemanage/v1.4/install.sh && sudo bash install.sh
 ```
 
 ### Option 2: GitHub Releases
@@ -49,12 +49,15 @@ From here, you can start/stop the server, view live logs, manage plugins, and mo
 Prefer the command line? We've got you covered:
 
 - `minemanage init` — Create a new server.
-- `minemanage start` — Launch the server in the background.
+- `minemanage start` — Launch the server in the background (detached).
 - `minemanage stop` — Gracefully stop the server.
 - `minemanage console` — Jump into the server console.
 - `minemanage logs` — Watch the logs stream in real-time.
+- `minemanage mods search <query>` — Search for mods.
+- `minemanage plugins search <query>` — Search for plugins.
 - `minemanage network info` — Check your connection details.
 - `minemanage backup` — Save your world.
+- `minemanage restore <file>` — Restore a backup.
 - `minemanage migrate` — Migrate legacy server structure to instances.
 
 ## 🤝 Contributing
