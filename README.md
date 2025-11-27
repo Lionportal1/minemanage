@@ -8,13 +8,13 @@ MineManage makes it incredibly easy to create, manage, and monitor Minecraft ser
 
 ## ✨ Features
 
-- **🚀 Instant Setup**: Initialize a Vanilla, Paper, Fabric, **NeoForge**, or **Forge** server in seconds.
-- **🖥️ Interactive Dashboard 2.0**: A redesigned TUI with categorized menus (Control, Content, Config, Instances, Network) and **Global Tab Autocompletion**.
-- **🔌 Mod & Plugin Manager**: Search and install mods and plugins directly from **Modrinth** via the CLI.
-- **📦 Instance Management**: Switch between different server versions and modpacks effortlessly.
-- **🛡️ Automated Backups**: Keep your worlds safe with easy backup and restore commands.
-- **🌐 Network Tools**: View your IP, manage ports, and even attempt auto-port forwarding (UPnP).
-- **🐧 Linux Ready**: Optimized for both macOS and Linux environments.
+*   **Easy Installation**: One-command install script with auto-dependency detection and virtual environment support.
+*   **Dashboard UI**: Interactive TUI dashboard for managing your server.
+*   **Admin Tools**: Built-in admin menu for password management and configuration.
+*   **Multi-Platform**: Supports Vanilla, Paper, Fabric, Forge, and NeoForge.
+*   **Modpack Support**: Search and install modpacks directly from Modrinth.
+*   **Backup & Restore**: Built-in backup system with easy restore commands.
+*   **Secure**: Runs as a standard user (non-root) with password protection.
 
 ## 📥 Installation
 
