@@ -8,26 +8,77 @@ NC='\033[0m' # No Color
 
 echo -e "${GREEN}=== MineManage Installer ===${NC}"
 
-# Check Dependencies
+# Check for Root
+if [ "$EUID" -eq 0 ]; then
+  echo -e "${RED}Error: Please do not run this script as root/sudo.${NC}"
+  echo -e "The script will ask for sudo permission when needed (to install dependencies)."
+  exit 1
+fi
+
+# Check Dependencies & OS Detection
 echo -e "\n${YELLOW}Checking dependencies...${NC}"
 
-if ! command -v python3 &> /dev/null; then
-    echo -e "${RED}Error: python3 is not installed.${NC}"
-    exit 1
-else
-    echo -e "${GREEN}✓ python3 found${NC}"
+DEPENDENCIES="python3 python3-venv screen"
+MISSING_DEPS=""
+
+# Detect Package Manager
+PKG_MANAGER=""
+INSTALL_CMD=""
+
+if command -v apt-get &> /dev/null; then
+    PKG_MANAGER="apt"
+    INSTALL_CMD="sudo apt-get install -y"
+    # Check for Java (default-jre)
+    if ! command -v java &> /dev/null; then
+        MISSING_DEPS="$MISSING_DEPS default-jre"
+    fi
+elif command -v dnf &> /dev/null; then
+    PKG_MANAGER="dnf"
+    INSTALL_CMD="sudo dnf install -y"
+    if ! command -v java &> /dev/null; then
+        MISSING_DEPS="$MISSING_DEPS java-latest-openjdk"
+    fi
+elif command -v pacman &> /dev/null; then
+    PKG_MANAGER="pacman"
+    INSTALL_CMD="sudo pacman -S --noconfirm"
+    if ! command -v java &> /dev/null; then
+        MISSING_DEPS="$MISSING_DEPS jre-openjdk"
+    fi
 fi
 
-if ! command -v java &> /dev/null; then
-    echo -e "${YELLOW}Warning: java is not installed. You will need it to run Minecraft servers.${NC}"
-else
-    echo -e "${GREEN}✓ java found${NC}"
-fi
+# Check core tools
+for dep in $DEPENDENCIES; do
+    if ! command -v $dep &> /dev/null; then
+         # Special handling for python3-venv which is often a separate package on Debian/Ubuntu
+         if [[ "$dep" == "python3-venv" ]]; then
+            # Check if venv module is available
+            if ! python3 -c "import venv" &> /dev/null; then
+                 MISSING_DEPS="$MISSING_DEPS python3-venv"
+            fi
+         else
+            MISSING_DEPS="$MISSING_DEPS $dep"
+         fi
+    fi
+done
 
-if ! command -v screen &> /dev/null; then
-    echo -e "${YELLOW}Warning: screen is not installed. You will need it for background management.${NC}"
+if [ -n "$MISSING_DEPS" ]; then
+    echo -e "${YELLOW}Missing dependencies: $MISSING_DEPS${NC}"
+    if [ -n "$PKG_MANAGER" ]; then
+        read -p "Install missing dependencies with $PKG_MANAGER? (y/n) " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            echo -e "Running: $INSTALL_CMD $MISSING_DEPS"
+            $INSTALL_CMD $MISSING_DEPS
+        else
+            echo -e "${RED}Aborting. Please install dependencies manually.${NC}"
+            exit 1
+        fi
+    else
+        echo -e "${RED}Could not detect package manager. Please install: $MISSING_DEPS${NC}"
+        exit 1
+    fi
 else
-    echo -e "${GREEN}✓ screen found${NC}"
+    echo -e "${GREEN}✓ All dependencies found${NC}"
 fi
 
 # Setup
@@ -81,16 +132,25 @@ else
     fi
 fi
 
+# Create Virtual Environment
+VENV_DIR="$INSTALL_DIR/venv"
+echo -e "Setting up Python virtual environment..."
+if [ ! -d "$VENV_DIR" ]; then
+    python3 -m venv "$VENV_DIR"
+fi
+
 # Download and install requirements
 REQ_URL="https://raw.githubusercontent.com/$REPO/$VERSION/requirements.txt"
 REQ_PATH="$INSTALL_DIR/requirements.txt"
 echo -e "Downloading requirements.txt..."
 if curl -L -o "$REQ_PATH" "$REQ_URL"; then
-    echo -e "Installing dependencies..."
-    if pip3 install -r "$REQ_PATH"; then
+    echo -e "Installing dependencies into venv..."
+    # Install into venv
+    if "$VENV_DIR/bin/pip" install -r "$REQ_PATH"; then
         echo -e "${GREEN}Dependencies installed.${NC}"
     else
-        echo -e "${YELLOW}Warning: Failed to install dependencies. You may need to run 'pip3 install -r $REQ_PATH' manually.${NC}"
+        echo -e "${RED}Failed to install dependencies.${NC}"
+        exit 1
     fi
 fi
 
@@ -105,7 +165,7 @@ mkdir -p "$BIN_DIR"
 cat > "$WRAPPER_PATH" <<EOF
 #!/bin/bash
 cd "$INSTALL_DIR"
-exec python3 manager.py "\$@"
+exec "$VENV_DIR/bin/python3" manager.py "\$@"
 EOF
 
 chmod +x "$WRAPPER_PATH"
