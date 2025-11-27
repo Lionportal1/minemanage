@@ -20,6 +20,8 @@ import xml.etree.ElementTree as ET
 import readline
 import zipfile
 
+__version__ = "1.5.0"
+
 # Constants
 # Constants
 CONFIG_FILE = "config.json"
@@ -432,8 +434,8 @@ def print_info(msg):
 def print_warning(msg):
     print(f"{Colors.WARNING}{msg}{Colors.ENDC}")
 
-def print_header(msg):
-    print(f"\n{Colors.HEADER}{Colors.BOLD}{msg}{Colors.ENDC}")
+def print_header(text):
+    print(f"\n{Colors.HEADER}=== {text} (v{__version__}) ==={Colors.ENDC}")
 
 class SimpleCompleter:
     def __init__(self, options):
@@ -3067,8 +3069,9 @@ def cmd_instance(args):
 def main():
 
 
-    parser = argparse.ArgumentParser(description="MineManage CLI")
-    subparsers = parser.add_subparsers(dest="command", help="Command to run")
+    parser = argparse.ArgumentParser(description="MineManage - Minecraft Server Manager")
+    parser.add_argument("--version", action="version", version=f"MineManage v{__version__}")
+    subparsers = parser.add_subparsers(dest="command", help="Command to execute")
     
     # Init command
     parser_init = subparsers.add_parser("init", help="Initialize the server")
