@@ -2145,10 +2145,10 @@ def dashboard_content_management():
         elif choice == 'p':
             dashboard_plugins_menu()
         elif choice == 'b':
-            cmd_backup(None)
+            cmd_backup(argparse.Namespace())
             input("\nPress Enter to continue...")
         elif choice == 'r':
-            cmd_restore(None)
+            cmd_restore(argparse.Namespace(filename=None, file=None))
             input("\nPress Enter to continue...")
         elif choice == 'back':
             break
