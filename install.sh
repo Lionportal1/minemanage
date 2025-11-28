@@ -115,7 +115,7 @@ else
     fi
 fi
 
-DOWNLOAD_URL="https://raw.githubusercontent.com/$REPO/$VERSION/manager.py"
+DOWNLOAD_URL="https://raw.githubusercontent.com/$REPO/$VERSION/manager.py?t=$(date +%s)"
 INSTALL_DIR="$HOME/.minemanage"
 SCRIPT_PATH="$INSTALL_DIR/manager.py"
 BIN_DIR="$HOME/.local/bin"
