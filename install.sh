@@ -103,7 +103,6 @@ if [[ "$1" == "--dev" ]]; then
 else
     # Remove dev mode marker if it exists (switching back to stable)
     rm -f "$HOME/.minemanage/.dev_mode"
-fi
     echo -e "Fetching latest release version..."
     # Try to get latest tag from GitHub API
     LATEST_TAG=$(curl -s "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
