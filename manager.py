@@ -1138,8 +1138,13 @@ def cmd_start(args):
         # If launch_cmd is a list, join it.
         cmd_str = " ".join(launch_cmd)
         
+        # Explicitly cd into the directory to ensure run scripts work correctly
+        # This fixes issues where screen/bash might not respect the CWD or run scripts depend on PWD
+        full_cmd = f"cd \"{server_dir}\" && {cmd_str}"
+        
         try:
-            subprocess.run(["screen", "-dmS", screen_name, "bash", "-c", cmd_str], cwd=server_dir, check=True)
+            # We still keep cwd=server_dir for the screen process itself, but the bash command now has explicit cd
+            subprocess.run(["screen", "-dmS", screen_name, "bash", "-c", full_cmd], cwd=server_dir, check=True)
             print_success("Server started.")
             print_info("Use 'minemanage console' to view the console.")
         except subprocess.CalledProcessError as e:
