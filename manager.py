@@ -2930,19 +2930,6 @@ def cmd_network(args):
             # Construct full control URL
             from urllib.parse import urlparse
             parsed = urlparse(location)
-            control_url = f"{parsed.scheme}://{parsed.netloc}{control_url_path}"
-            if control_url_path.startswith("http"):
-                control_url = control_url_path
-                
-            # 3. AddPortMapping
-            # Get current port
-            server_dir = get_instance_dir()
-            prop_file = os.path.join(server_dir, "server.properties")
-            port = "25565"
-            if os.path.exists(prop_file):
-                with open(prop_file, 'r') as f:
-                    for line in f:
-                        if line.strip().startswith("server-port="):
                             port = line.strip().split("=")[1]
                             break
             
@@ -2999,6 +2986,7 @@ def dashboard_network_menu():
         print("\nCommands:")
         print("[P]ort (Set Port)")
         print("[U]PnP (Auto-Map Port)")
+        print("[F]irewall (UFW)")
         print("[B]ack to Dashboard")
         
         choice = input("\nEnter command: ").lower()
@@ -3013,6 +3001,44 @@ def dashboard_network_menu():
             args = argparse.Namespace(action="upnp")
             cmd_network(args)
             input("\nPress Enter to continue...")
+        elif choice == 'f':
+            while True:
+                os.system('cls' if os.name == 'nt' else 'clear')
+                print_header("=== Firewall Manager (UFW) ===")
+                
+                # Show status
+                args = argparse.Namespace(action="firewall", value="status", port=None)
+                cmd_network(args)
+                
+                print("\nCommands:")
+                print("[A]llow Current Port")
+                print("[D]eny Port")
+                print("[E]nable Firewall")
+                print("[X]Disable Firewall")
+                print("[B]ack")
+                
+                f_choice = input("\nEnter command: ").lower()
+                
+                if f_choice == 'a':
+                    args = argparse.Namespace(action="firewall", value="allow", port=None)
+                    cmd_network(args)
+                    input("\nPress Enter to continue...")
+                elif f_choice == 'd':
+                    p = input("Enter port to deny: ").strip()
+                    if p:
+                        args = argparse.Namespace(action="firewall", value="deny", port=p)
+                        cmd_network(args)
+                        input("\nPress Enter to continue...")
+                elif f_choice == 'e':
+                    args = argparse.Namespace(action="firewall", value="enable", port=None)
+                    cmd_network(args)
+                    input("\nPress Enter to continue...")
+                elif f_choice == 'x':
+                    args = argparse.Namespace(action="firewall", value="disable", port=None)
+                    cmd_network(args)
+                    input("\nPress Enter to continue...")
+                elif f_choice == 'b':
+                    break
         elif choice == 'b':
             break
 
@@ -3193,8 +3219,9 @@ def main():
 
     # Network command
     parser_network = subparsers.add_parser("network", help="Network tools")
-    parser_network.add_argument("action", choices=["info", "set-port", "upnp"], help="Action to perform")
-    parser_network.add_argument("value", nargs="?", help="Value for set-port")
+    parser_network.add_argument("action", choices=["info", "set-port", "upnp", "firewall"], help="Action to perform")
+    parser_network.add_argument("value", nargs="?", help="Value for set-port or firewall sub-action (allow/deny/status)")
+    parser_network.add_argument("--port", help="Port for firewall action")
 
     # Instance command
     parser_instance = subparsers.add_parser("instance", help="Manage server instances")
