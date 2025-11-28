@@ -40,6 +40,7 @@ SERVER_JAR = "server.jar"
 # Configuration Keys
 GLOBAL_CONFIG_KEYS = ["java_path", "current_instance", "admin_password_hash", "login_delay"]
 INSTANCE_CONFIG_KEYS = ["ram_min", "ram_max", "server_type", "server_version"]
+SERVER_TYPES = ["vanilla", "paper", "fabric", "neoforge", "forge"]
 
 def get_global_config():
     default_config = {
@@ -2198,7 +2199,8 @@ def dashboard_instance_manager():
             name = input("Enter new instance name: ").strip()
             if name:
                 version = input("Enter Minecraft version (default 1.20.4): ").strip()
-                stype = input("Enter server type (vanilla/paper/fabric/neoforge/forge, default paper): ").strip().lower()
+                types_str = "/".join(SERVER_TYPES)
+                stype = input(f"Enter server type ({types_str}, default paper): ").strip().lower()
                 
                 args = argparse.Namespace(
                     action="create", 
@@ -3142,7 +3144,7 @@ def main():
     # Init command
     parser_init = subparsers.add_parser("init", help="Initialize the server")
     parser_init.add_argument("--version", help="Minecraft version (e.g., 1.20.2)")
-    parser_init.add_argument("--type", choices=["vanilla", "paper", "fabric", "neoforge", "forge"], help="Server type")
+    parser_init.add_argument("--type", choices=SERVER_TYPES, help="Server type")
     parser_init.add_argument("--force", action="store_true", help="Force download even if jar exists")
     
     # Start command
@@ -3199,7 +3201,7 @@ def main():
     parser_instance.add_argument("action", choices=["list", "create", "select", "delete", "ram"], help="Action to perform")
     parser_instance.add_argument("name", nargs="?", help="Instance name")
     parser_instance.add_argument("--version", help="Minecraft version (create only)")
-    parser_instance.add_argument("--type", choices=["vanilla", "paper", "fabric", "neoforge", "forge"], help="Server type (create only)")
+    parser_instance.add_argument("--type", choices=SERVER_TYPES, help="Server type (create only)")
     parser_instance.add_argument("--min-ram", help="Minimum RAM (e.g. 2G) for 'ram' action")
     parser_instance.add_argument("--max-ram", help="Maximum RAM (e.g. 4G) for 'ram' action")
 
