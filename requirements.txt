@@ -27,3 +27,4 @@
 # rich      # For better TUI/Colors
 # External Dependencies
 tqdm
+miniupnpc

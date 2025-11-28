@@ -18,6 +18,7 @@ import socket
 import struct
 import xml.etree.ElementTree as ET
 from tqdm import tqdm
+import miniupnpc
 import readline
 import zipfile
 
@@ -2878,117 +2879,49 @@ def cmd_network(args):
         print_success(f"Server port set to {args.value}")
         
     elif args.action == "upnp":
-        print_info("Attempting UPnP port mapping (Experimental)...")
-        # Minimal UPnP implementation
-        # 1. Discover
-        SSDP_ADDR = "239.255.255.250"
-        SSDP_PORT = 1900
-        SSDP_MX = 2
-        SSDP_ST = "urn:schemas-upnp-org:service:WANIPConnection:1"
-
-        ssdpRequest = "M-SEARCH * HTTP/1.1\r\n" + \
-                        "HOST: %s:%d\r\n" % (SSDP_ADDR, SSDP_PORT) + \
-                        "MAN: \"ssdp:discover\"\r\n" + \
-                        "MX: %d\r\n" % (SSDP_MX) + \
-                        "ST: %s\r\n" % (SSDP_ST) + "\r\n"
-
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.settimeout(3)
+        print_info("Attempting UPnP port mapping via miniupnpc...")
         
         try:
-            sock.sendto(ssdpRequest.encode(), (SSDP_ADDR, SSDP_PORT))
-            resp = sock.recv(1024)
+            u = miniupnpc.UPnP()
+            u.discoverdelay = 200
+            print_info("Discovering UPnP devices...")
+            ndevices = u.discover()
+            print_info(f"Found {ndevices} devices.")
             
-            # Parse location
-            import re
-            location_re = re.search(r'LOCATION: (.*)', resp.decode(), re.IGNORECASE)
-            if not location_re:
-                print_error("Could not find UPnP gateway location.")
-                return
-                
-            location = location_re.group(1).strip()
-            print_info(f"Found UPnP Gateway at {location}")
+            print_info("Selecting IGD...")
+            u.selectigd()
             
-            # 2. Get Control URL (Skipping full XML parse for brevity, assuming standard paths or simple regex)
-            # We need to fetch the XML description
-            with urllib.request.urlopen(location) as response:
-                desc_xml = response.read().decode()
+            external_ip = u.externalipaddress()
+            print_info(f"External IP: {external_ip}")
             
-            # Find control URL for WANIPConnection
-            # This is very hacky regex parsing
-            # Look for <serviceType>urn:schemas-upnp-org:service:WANIPConnection:1</serviceType> ... <controlURL>...</controlURL>
-            # Actually, let's just find the controlURL associated with WANIPConnection
-            # If multiple, pick first.
-            
-            # Simple heuristic: Find the service block
-            service_block = re.search(r'urn:schemas-upnp-org:service:WANIPConnection:1.*?<controlURL>(.*?)</controlURL>', desc_xml, re.DOTALL)
-            if not service_block:
-                # Try WANPPPConnection
-                service_block = re.search(r'urn:schemas-upnp-org:service:WANPPPConnection:1.*?<controlURL>(.*?)</controlURL>', desc_xml, re.DOTALL)
-            
-            if not service_block:
-                print_error("Could not find WANIPConnection or WANPPPConnection service.")
-                return
-                
-            control_url_path = service_block.group(1).strip()
-            
-            # Construct full control URL
-            from urllib.parse import urlparse
-            parsed = urlparse(location)
-            control_url = f"{parsed.scheme}://{parsed.netloc}{control_url_path}"
-            if control_url_path.startswith("http"):
-                control_url = control_url_path
-                
-            # 3. AddPortMapping
-            # Get current port
+            # Get port
             server_dir = get_instance_dir()
-            prop_file = os.path.join(server_dir, "server.properties")
-            port = "25565"
-            if os.path.exists(prop_file):
-                with open(prop_file, 'r') as f:
-                    for line in f:
-                        if line.strip().startswith("server-port="):
-                            port = line.strip().split("=")[1]
-                            break
+            props = read_server_properties(server_dir)
+            port = int(props.get("server-port", "25565"))
             
-            local_ip = socket.gethostbyname(socket.gethostname())
-            # Better local IP
+            # Get local IP
             try:
                 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 s.connect(("8.8.8.8", 80))
                 local_ip = s.getsockname()[0]
                 s.close()
-            except:
-                pass
-
-            soap_body = f"""<?xml version="1.0"?>
-<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-<s:Body>
-<u:AddPortMapping xmlns:u="urn:schemas-upnp-org:service:WANIPConnection:1">
-<NewRemoteHost></NewRemoteHost>
-<NewExternalPort>{port}</NewExternalPort>
-<NewProtocol>TCP</NewProtocol>
-<NewInternalPort>{port}</NewInternalPort>
-<NewInternalClient>{local_ip}</NewInternalClient>
-<NewEnabled>1</NewEnabled>
-<NewPortMappingDescription>MineManage</NewPortMappingDescription>
-<NewLeaseDuration>0</NewLeaseDuration>
-</u:AddPortMapping>
-</s:Body>
-</s:Envelope>"""
-
-            req = urllib.request.Request(control_url, data=soap_body.encode(), method="POST")
-            req.add_header('Content-Type', 'text/xml; charset="utf-8"')
-            req.add_header('SOAPAction', '"urn:schemas-upnp-org:service:WANIPConnection:1#AddPortMapping"')
+            except Exception:
+                local_ip = u.lanaddr
             
-            with urllib.request.urlopen(req) as response:
-                if response.status == 200:
-                    print_success(f"UPnP Port Mapping successful for port {port} -> {local_ip}")
-                else:
-                    print_error(f"UPnP failed with status {response.status}")
-                    
-        except socket.timeout:
-            print_error("UPnP Discovery timed out. No gateway found.")
+            print_info(f"Adding port mapping: {external_ip}:{port} -> {local_ip}:{port} (TCP/UDP)")
+            
+            # addportmapping(external_port, protocol, internal_host, internal_port, description, remote_host)
+            res_tcp = u.addportmapping(port, 'TCP', local_ip, port, 'MineManage Server', '')
+            res_udp = u.addportmapping(port, 'UDP', local_ip, port, 'MineManage Server', '')
+            
+            if res_tcp:
+                print_success(f"TCP Port {port} mapped successfully!")
+            else:
+                print_warning(f"TCP Port mapping returned {res_tcp}")
+
+            if res_udp:
+                print_success(f"UDP Port {port} mapped successfully!")
+            
         except Exception as e:
             print_error(f"UPnP failed: {e}")
 
