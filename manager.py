@@ -37,21 +37,37 @@ GLOBAL_CONFIG_KEYS = ["java_path", "current_instance", "admin_password_hash", "l
 INSTANCE_CONFIG_KEYS = ["ram_min", "ram_max", "server_type", "server_version"]
 
 def get_global_config():
+    default_config = {
+        "java_path": "java",
+        "current_instance": "default",
+        "admin_password_hash": ""
+    }
+    
     if not os.path.exists(CONFIG_FILE):
-        default_config = {
-            "java_path": "java",
-            "current_instance": "default",
-            "admin_password_hash": ""
-        }
-        with open(CONFIG_FILE, 'w') as f:
-            json.dump(default_config, f, indent=4)
+        try:
+            with open(CONFIG_FILE, 'w') as f:
+                json.dump(default_config, f, indent=4)
+        except IOError as e:
+            print_error(f"Failed to create config file: {e}")
         return default_config
-    with open(CONFIG_FILE, 'r') as f:
-        return json.load(f)
+        
+    try:
+        with open(CONFIG_FILE, 'r') as f:
+            return json.load(f)
+    except (json.JSONDecodeError, IOError) as e:
+        print_error(f"Failed to load config file: {e}. Using defaults.")
+        return default_config
 
 def save_global_config(config):
-    with open(CONFIG_FILE, 'w') as f:
-        json.dump(config, f, indent=4)
+    try:
+        # Write to temp file first
+        temp_file = CONFIG_FILE + ".tmp"
+        with open(temp_file, 'w') as f:
+            json.dump(config, f, indent=4)
+        # Atomic rename
+        os.replace(temp_file, CONFIG_FILE)
+    except IOError as e:
+        print_error(f"Failed to save config file: {e}")
 
 
 
@@ -1007,6 +1023,81 @@ def cmd_init(args):
     
     install_server_core(instance_name, version, server_type)
 
+def _get_forge_launch_command(server_dir, config, ram_min, ram_max):
+    """
+    Constructs the launch command for Forge/NeoForge servers.
+    Handles both modern (run.sh/bat) and legacy (jar-based) launch methods.
+    """
+    run_script = "run.bat" if os.name == 'nt' else "run.sh"
+    run_path = os.path.join(server_dir, run_script)
+    
+    if not os.path.exists(run_path):
+            # Check for legacy Forge (jar file)
+            # Legacy forge (1.16.5 and older) uses a forge-x.y.z.jar
+            forge_jars = [f for f in os.listdir(server_dir) if f.startswith("forge-") and f.endswith(".jar") and "installer" not in f]
+            
+            if not forge_jars:
+                print_error(f"NeoForge/Forge run script not found at {run_path} and no legacy Forge jar found. Run 'init' first.")
+                return None
+            
+            # Found legacy jar
+            legacy_jar = forge_jars[0]
+            print_info(f"Detected Legacy Forge JAR: {legacy_jar}")
+            
+            return [
+            config.get("java_path", "java"),
+            f"-Xms{ram_min}",
+            f"-Xmx{ram_max}",
+            "-jar",
+            legacy_jar,
+            "nogui"
+        ]
+    else:
+        # Modern Forge/NeoForge logic
+        # Update user_jvm_args.txt with RAM settings
+        jvm_args_path = os.path.join(server_dir, "user_jvm_args.txt")
+        
+        # Read existing args to preserve other settings
+        existing_lines = []
+        if os.path.exists(jvm_args_path):
+            with open(jvm_args_path, 'r') as f:
+                existing_lines = f.readlines()
+        
+        # Filter out old memory settings
+        new_lines = [l for l in existing_lines if not l.strip().startswith("-Xms") and not l.strip().startswith("-Xmx")]
+        
+        # Append new memory settings
+        if new_lines and not new_lines[-1].endswith('\n'):
+            new_lines[-1] += '\n'
+        new_lines.append(f"-Xms{ram_min}\n")
+        new_lines.append(f"-Xmx{ram_max}\n")
+        
+        with open(jvm_args_path, 'w') as f:
+            f.writelines(new_lines)
+            
+        # Ensure it's executable
+        if os.name != 'nt':
+            os.chmod(run_path, 0o755)
+
+        # Launch command is just the script
+        return [f"./{run_script}"]
+
+def _get_vanilla_launch_command(server_dir, config, ram_min, ram_max):
+    """Constructs the launch command for Vanilla/Paper/Fabric servers."""
+    jar_path = os.path.join(server_dir, SERVER_JAR)
+    if not os.path.exists(jar_path):
+        print_error(f"Server jar not found at {jar_path}. Run 'init' first.")
+        return None
+
+    return [
+        config.get("java_path", "java"),
+        f"-Xms{ram_min}",
+        f"-Xmx{ram_max}",
+        "-jar",
+        SERVER_JAR,
+        "nogui"
+    ]
+
 def cmd_start(args):
     config = load_config()
     server_dir = os.path.abspath(get_instance_dir())
@@ -1038,85 +1129,12 @@ def cmd_start(args):
     launch_cmd = []
     
     if config.get("server_type") == "neoforge" or config.get("server_type") == "forge":
-        # NeoForge uses run.sh/run.bat and user_jvm_args.txt
-        run_script = "run.bat" if os.name == 'nt' else "run.sh"
-        run_path = os.path.join(server_dir, run_script)
-        
-        if not os.path.exists(run_path):
-             # Check for legacy Forge (jar file)
-             # Legacy forge (1.16.5 and older) uses a forge-x.y.z.jar
-             forge_jars = [f for f in os.listdir(server_dir) if f.startswith("forge-") and f.endswith(".jar") and "installer" not in f]
-             
-             if not forge_jars:
-                 print_error(f"NeoForge/Forge run script not found at {run_path} and no legacy Forge jar found. Run 'init' first.")
-                 return
-             
-             # Found legacy jar
-             legacy_jar = forge_jars[0]
-             print_info(f"Detected Legacy Forge JAR: {legacy_jar}")
-             
-             launch_cmd = [
-                config.get("java_path", "java"),
-                f"-Xms{ram_min}",
-                f"-Xmx{ram_max}",
-                "-jar",
-                legacy_jar,
-                "nogui"
-            ]
-        else:
-            # Modern Forge/NeoForge logic
-            # Update user_jvm_args.txt with RAM settings
-            jvm_args_path = os.path.join(server_dir, "user_jvm_args.txt")
-            
-            # Read existing args to preserve other settings
-            existing_lines = []
-            if os.path.exists(jvm_args_path):
-                with open(jvm_args_path, 'r') as f:
-                    existing_lines = f.readlines()
-            
-            # Filter out old memory settings
-            new_lines = [l for l in existing_lines if not l.strip().startswith("-Xms") and not l.strip().startswith("-Xmx")]
-            
-            # Append new memory settings
-            if new_lines and not new_lines[-1].endswith('\n'):
-                new_lines[-1] += '\n'
-            new_lines.append(f"-Xms{ram_min}\n")
-            new_lines.append(f"-Xmx{ram_max}\n")
-            
-            with open(jvm_args_path, 'w') as f:
-                f.writelines(new_lines)
-                
-            # Launch command is just the script
-            # For screen/subprocess, we execute the script directly
-            # Since we set cwd=server_dir, we should use the script name relative to it
-            # But for screen, we might need absolute path or ./
-            if not args.attach:
-                # Screen needs to know what to run. 
-                # If we use cwd in subprocess, screen starts in that dir.
-                # So ./run.sh should work.
-                launch_cmd = [f"./{run_script}"]
-            else:
-                # Popen with cwd set
-                launch_cmd = [f"./{run_script}"]
-            
-            # Ensure it's executable
-            if os.name != 'nt':
-                os.chmod(run_path, 0o755)
-
+        launch_cmd = _get_forge_launch_command(server_dir, config, ram_min, ram_max)
     else:
-        # Standard launch (Vanilla, Paper, Fabric)
-        if not os.path.exists(jar_path):
-            print_error(f"Server jar not found at {jar_path}. Run 'init' first.")
-            return
+        launch_cmd = _get_vanilla_launch_command(server_dir, config, ram_min, ram_max)
 
-        launch_cmd = [
-            config.get("java_path", "java"),
-            f"-Xms{ram_min}",
-            f"-Xmx{ram_max}",
-            "-jar",
-            SERVER_JAR,
-            "nogui"
-        ]
+    if not launch_cmd:
+        return
 
     # Execute
     if not args.attach:
@@ -1240,8 +1258,8 @@ def cmd_backup(args):
         # Use zipfile to manually include all files except exclusions
         with zipfile.ZipFile(f"{backup_path}.zip", 'w', zipfile.ZIP_DEFLATED) as zipf:
             for root, dirs, files in os.walk(server_dir):
-                # Exclude backup directory itself and logs/cache to save space
-                if "backups" in root or "logs" in root or "cache" in root:
+                # Exclude backup directory itself and logs/cache/libraries/versions to save space
+                if "backups" in root or "logs" in root or "cache" in root or "libraries" in root or "versions" in root:
                     continue
                     
                 for file in files:
