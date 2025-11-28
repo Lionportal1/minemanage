@@ -1009,7 +1009,7 @@ def cmd_init(args):
 
 def cmd_start(args):
     config = load_config()
-    server_dir = get_instance_dir()
+    server_dir = os.path.abspath(get_instance_dir())
     jar_path = os.path.join(server_dir, SERVER_JAR)
     eula_path = os.path.join(server_dir, EULA_FILE)
     
