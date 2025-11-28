@@ -17,6 +17,7 @@ import getpass
 import socket
 import struct
 import xml.etree.ElementTree as ET
+from tqdm import tqdm
 import readline
 import zipfile
 
@@ -110,7 +111,7 @@ def verify_checksum(file_path, expected_hash, algorithm='sha1'):
         return False
 
 def download_file_with_progress(url, dest, expected_hash=None, hash_algo='sha1', retries=3):
-    """Download a file with a progress bar and optional checksum verification."""
+    """Download a file with a progress bar (tqdm) and optional checksum verification."""
     attempt = 0
     while attempt <= retries:
         try:
@@ -118,29 +119,20 @@ def download_file_with_progress(url, dest, expected_hash=None, hash_algo='sha1',
             with urllib.request.urlopen(url, timeout=60) as response:
                 total_size = int(response.info().get('Content-Length', -1))
                 
-                with open(dest, 'wb') as out_file:
-                    downloaded = 0
+                with open(dest, 'wb') as out_file, tqdm(
+                    desc=os.path.basename(dest),
+                    total=total_size,
+                    unit='iB',
+                    unit_scale=True,
+                    unit_divisor=1024,
+                ) as bar:
                     block_size = 8192
-                    
-                    last_update = 0
-                    
                     while True:
                         buffer = response.read(block_size)
                         if not buffer:
                             break
-                        
                         out_file.write(buffer)
-                        downloaded += len(buffer)
-                        
-                        current_time = time.time()
-                        # Update max 5 times a second to avoid spamming stdout
-                        if current_time - last_update > 0.2:
-                            show_progress_manual(downloaded, total_size)
-                            last_update = current_time
-                    
-                    # Final update
-                    show_progress_manual(downloaded, total_size)
-                    print() # Newline
+                        bar.update(len(buffer))
             
             if expected_hash:
                 if not verify_checksum(dest, expected_hash, hash_algo):
@@ -152,7 +144,6 @@ def download_file_with_progress(url, dest, expected_hash=None, hash_algo='sha1',
             return
 
         except Exception as e:
-            print() # Ensure newline if we crash mid-bar
             attempt += 1
             if attempt <= retries:
                 print_warning(f"Download failed: {e}. Retrying ({attempt}/{retries})...")
@@ -1261,17 +1252,26 @@ def cmd_backup(args):
     
     print_info(f"Creating backup {backup_name}.zip...")
     try:
+        # Calculate total files for progress bar
+        file_count = 0
+        for root, dirs, files in os.walk(server_dir):
+            if "backups" in root or "logs" in root or "cache" in root or "libraries" in root or "versions" in root:
+                continue
+            file_count += len(files)
+
         # Use zipfile to manually include all files except exclusions
         with zipfile.ZipFile(f"{backup_path}.zip", 'w', zipfile.ZIP_DEFLATED) as zipf:
-            for root, dirs, files in os.walk(server_dir):
-                # Exclude backup directory itself and logs/cache/libraries/versions to save space
-                if "backups" in root or "logs" in root or "cache" in root or "libraries" in root or "versions" in root:
-                    continue
-                    
-                for file in files:
-                    file_path = os.path.join(root, file)
-                    arcname = os.path.relpath(file_path, server_dir)
-                    zipf.write(file_path, arcname)
+            with tqdm(total=file_count, unit="file", desc="Backing up") as pbar:
+                for root, dirs, files in os.walk(server_dir):
+                    # Exclude backup directory itself and logs/cache/libraries/versions to save space
+                    if "backups" in root or "logs" in root or "cache" in root or "libraries" in root or "versions" in root:
+                        continue
+                        
+                    for file in files:
+                        file_path = os.path.join(root, file)
+                        arcname = os.path.relpath(file_path, server_dir)
+                        zipf.write(file_path, arcname)
+                        pbar.update(1)
                     
         print_success(f"Backup created at {backup_path}.zip")
     except Exception as e:
@@ -1334,7 +1334,12 @@ def cmd_restore(args):
     backup_path = os.path.join(BACKUP_DIR, target_backup)
     print_info("Unzipping backup...")
     try:
-        shutil.unpack_archive(backup_path, server_dir) 
+        with zipfile.ZipFile(backup_path, 'r') as zipf:
+            file_list = zipf.namelist()
+            with tqdm(total=len(file_list), unit="file", desc="Restoring") as pbar:
+                for file in file_list:
+                    zipf.extract(file, server_dir)
+                    pbar.update(1)
         print_success("Restore complete.")
     except Exception as e:
         print_error(f"Restore failed: {e}")
