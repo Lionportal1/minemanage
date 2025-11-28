@@ -18,7 +18,7 @@ fi
 # Check Dependencies & OS Detection
 echo -e "\n${YELLOW}Checking dependencies...${NC}"
 
-DEPENDENCIES="python3 python3-venv screen"
+DEPENDENCIES="python3 python3-venv python3-pip screen"
 MISSING_DEPS=""
 
 # Detect Package Manager
@@ -55,6 +55,11 @@ for dep in $DEPENDENCIES; do
             if ! python3 -c "import venv" &> /dev/null; then
                  MISSING_DEPS="$MISSING_DEPS python3-venv"
             fi
+         elif [[ "$dep" == "python3-pip" ]]; then
+             # Check if pip module is available (sometimes command is pip3)
+             if ! python3 -m pip --version &> /dev/null; then
+                 MISSING_DEPS="$MISSING_DEPS python3-pip"
+             fi
          else
             MISSING_DEPS="$MISSING_DEPS $dep"
          fi
@@ -136,7 +141,23 @@ fi
 VENV_DIR="$INSTALL_DIR/venv"
 echo -e "Setting up Python virtual environment..."
 if [ ! -d "$VENV_DIR" ]; then
-    python3 -m venv "$VENV_DIR"
+    if python3 -m venv "$VENV_DIR"; then
+        echo -e "${GREEN}Virtual environment created.${NC}"
+    else
+        echo -e "${RED}Failed to create virtual environment. Please ensure python3-venv is installed correctly.${NC}"
+        exit 1
+    fi
+fi
+
+# Check if pip exists in venv
+if [ ! -f "$VENV_DIR/bin/pip" ]; then
+    echo -e "${YELLOW}pip not found in venv. Attempting to install ensurepip...${NC}"
+    if "$VENV_DIR/bin/python3" -m ensurepip; then
+         echo -e "${GREEN}pip installed via ensurepip.${NC}"
+    else
+         echo -e "${RED}Failed to install pip in venv. Please install python3-pip on your system.${NC}"
+         exit 1
+    fi
 fi
 
 # Download and install requirements
