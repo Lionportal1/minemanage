@@ -2180,6 +2180,7 @@ def dashboard_instance_manager():
         print("[S]witch / List Instances")
         print("[C]reate New Instance")
         print("[M]odpacks (Search/Import)")
+        print("[R]AM Settings")
         print("[D]elete Instance")
         print("[B]ack to Main Menu")
         
@@ -2226,6 +2227,24 @@ def dashboard_instance_manager():
                     args = argparse.Namespace(action="install", target=path)
                     cmd_modpacks(args)
                     input("\nPress Enter to continue...")
+        elif choice == 'r':
+            # RAM Settings
+            i_cfg = load_instance_config(current)
+            print(f"\nCurrent RAM Settings for {current}:")
+            print(f"  Min RAM: {i_cfg.get('ram_min', '2G')}")
+            print(f"  Max RAM: {i_cfg.get('ram_max', '4G')}")
+            
+            new_min = input("\nEnter new Min RAM (e.g. 4G) [Enter to keep]: ").strip()
+            new_max = input("Enter new Max RAM (e.g. 8G) [Enter to keep]: ").strip()
+            
+            if new_min or new_max:
+                args = argparse.Namespace(
+                    action="ram",
+                    min_ram=new_min if new_min else None,
+                    max_ram=new_max if new_max else None
+                )
+                cmd_instance(args)
+                input("\nUpdated! Press Enter to continue...")
         elif choice == 'd':
              # Reuse existing menu logic or just call cmd_instance
              # dashboard_instances_menu has 'd' option
@@ -3089,6 +3108,25 @@ def cmd_instance(args):
             except Exception as e:
                 print_error(f"Failed to delete instance: {e}")
 
+    elif args.action == "ram":
+        # Load config for current instance
+        i_cfg = load_instance_config(current)
+        
+        if not args.min_ram and not args.max_ram:
+            # Just display current
+            print_info(f"Current RAM settings for '{current}':")
+            print(f"  Min RAM: {i_cfg.get('ram_min', '2G')}")
+            print(f"  Max RAM: {i_cfg.get('ram_max', '4G')}")
+            return
+            
+        if args.min_ram:
+            i_cfg["ram_min"] = args.min_ram
+        if args.max_ram:
+            i_cfg["ram_max"] = args.max_ram
+            
+        save_instance_config(i_cfg, current)
+        print_success(f"Updated RAM settings for '{current}': Min={i_cfg.get('ram_min')}, Max={i_cfg.get('ram_max')}")
+
 def main():
 
 
@@ -3153,10 +3191,12 @@ def main():
 
     # Instance command
     parser_instance = subparsers.add_parser("instance", help="Manage server instances")
-    parser_instance.add_argument("action", choices=["list", "create", "select", "delete"], help="Action to perform")
+    parser_instance.add_argument("action", choices=["list", "create", "select", "delete", "ram"], help="Action to perform")
     parser_instance.add_argument("name", nargs="?", help="Instance name")
     parser_instance.add_argument("--version", help="Minecraft version (create only)")
     parser_instance.add_argument("--type", choices=["vanilla", "paper", "fabric", "neoforge", "forge"], help="Server type (create only)")
+    parser_instance.add_argument("--min-ram", help="Minimum RAM (e.g. 2G) for 'ram' action")
+    parser_instance.add_argument("--max-ram", help="Maximum RAM (e.g. 4G) for 'ram' action")
 
     # Logs command
     parser_logs = subparsers.add_parser("logs", help="View server logs")
