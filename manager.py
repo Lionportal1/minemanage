@@ -2930,6 +2930,19 @@ def cmd_network(args):
             # Construct full control URL
             from urllib.parse import urlparse
             parsed = urlparse(location)
+            control_url = f"{parsed.scheme}://{parsed.netloc}{control_url_path}"
+            if control_url_path.startswith("http"):
+                control_url = control_url_path
+                
+            # 3. AddPortMapping
+            # Get current port
+            server_dir = get_instance_dir()
+            prop_file = os.path.join(server_dir, "server.properties")
+            port = "25565"
+            if os.path.exists(prop_file):
+                with open(prop_file, 'r') as f:
+                    for line in f:
+                        if line.strip().startswith("server-port="):
                             port = line.strip().split("=")[1]
                             break
             
