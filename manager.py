@@ -22,9 +22,14 @@ import zipfile
 
 __version__ = "1.5.0"
 
+# Check for dev mode
+if os.path.exists(os.path.join(os.path.expanduser("~/.minemanage"), ".dev_mode")):
+    __version__ += " (DEV)"
+
 # Constants
 # Constants
-CONFIG_FILE = "config.json"
+CONFIG_DIR = os.path.expanduser("~/.minemanage")
+CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
 INSTANCES_DIR = "instances"
 INSTANCE_CONFIG_FILE = "instance.json"
 BACKUP_DIR = "backups"

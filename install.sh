@@ -97,7 +97,13 @@ VERSION="v1.3" # Default fallback
 if [[ "$1" == "--dev" ]]; then
     echo -e "${YELLOW}Dev mode enabled. Installing from main branch...${NC}"
     VERSION="main"
+    # Create dev mode marker
+    mkdir -p "$HOME/.minemanage"
+    touch "$HOME/.minemanage/.dev_mode"
 else
+    # Remove dev mode marker if it exists (switching back to stable)
+    rm -f "$HOME/.minemanage/.dev_mode"
+fi
     echo -e "Fetching latest release version..."
     # Try to get latest tag from GitHub API
     LATEST_TAG=$(curl -s "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
