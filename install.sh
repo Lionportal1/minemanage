@@ -149,8 +149,8 @@ if [ ! -d "$VENV_DIR" ]; then
     fi
 fi
 
-# Check if pip exists in venv
-if [ ! -f "$VENV_DIR/bin/pip" ]; then
+# Check if pip exists in venv (or pip3)
+if [ ! -f "$VENV_DIR/bin/pip" ] && [ ! -f "$VENV_DIR/bin/pip3" ]; then
     echo -e "${YELLOW}pip not found in venv. Attempting to install ensurepip...${NC}"
     if "$VENV_DIR/bin/python3" -m ensurepip; then
          echo -e "${GREEN}pip installed via ensurepip.${NC}"
@@ -166,8 +166,8 @@ REQ_PATH="$INSTALL_DIR/requirements.txt"
 echo -e "Downloading requirements.txt..."
 if curl -L -o "$REQ_PATH" "$REQ_URL"; then
     echo -e "Installing dependencies into venv..."
-    # Install into venv
-    if "$VENV_DIR/bin/pip" install -r "$REQ_PATH"; then
+    # Install into venv using python -m pip (safer than calling pip directly)
+    if "$VENV_DIR/bin/python3" -m pip install -r "$REQ_PATH"; then
         echo -e "${GREEN}Dependencies installed.${NC}"
     else
         echo -e "${RED}Failed to install dependencies.${NC}"
