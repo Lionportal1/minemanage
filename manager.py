@@ -4,9 +4,7 @@ import json
 import os
 import sys
 import subprocess
-import urllib.request
-import urllib.error
-import urllib.parse
+import requests
 from pathlib import Path
 
 import shutil
@@ -113,13 +111,14 @@ def verify_checksum(file_path, expected_hash, algorithm='sha1'):
         return False
 
 def download_file_with_progress(url, dest, expected_hash=None, hash_algo='sha1', retries=3):
-    """Download a file with a progress bar (tqdm) and optional checksum verification."""
+    """Download a file with a progress bar (tqdm) and optional checksum verification using requests."""
     attempt = 0
     while attempt <= retries:
         try:
-            # Set a global socket timeout if not already set, or just pass timeout to urlopen
-            with urllib.request.urlopen(url, timeout=60) as response:
-                total_size = int(response.info().get('Content-Length', -1))
+            # Stream the download
+            with requests.get(url, stream=True, timeout=60) as response:
+                response.raise_for_status()
+                total_size = int(response.headers.get('content-length', 0))
                 
                 with open(dest, 'wb') as out_file, tqdm(
                     desc=os.path.basename(dest),
@@ -128,13 +127,11 @@ def download_file_with_progress(url, dest, expected_hash=None, hash_algo='sha1',
                     unit_scale=True,
                     unit_divisor=1024,
                 ) as bar:
-                    block_size = 8192
-                    while True:
-                        buffer = response.read(block_size)
-                        if not buffer:
-                            break
-                        out_file.write(buffer)
-                        bar.update(len(buffer))
+                    chunk_size = 8192
+                    for chunk in response.iter_content(chunk_size=chunk_size):
+                        if chunk:
+                            out_file.write(chunk)
+                            bar.update(len(chunk))
             
             if expected_hash:
                 if not verify_checksum(dest, expected_hash, hash_algo):
@@ -380,14 +377,16 @@ def ensure_directories(instance_dir=None):
 def get_vanilla_url(version):
     manifest_url = "https://piston-meta.mojang.com/mc/game/version_manifest.json"
     try:
-        with urllib.request.urlopen(manifest_url) as response:
-            data = json.loads(response.read().decode())
+        response = requests.get(manifest_url, timeout=10)
+        response.raise_for_status()
+        data = response.json()
         
         for v in data['versions']:
             if v['id'] == version:
                 version_url = v['url']
-                with urllib.request.urlopen(version_url) as v_response:
-                    v_data = json.loads(v_response.read().decode())
+                v_response = requests.get(version_url, timeout=10)
+                v_response.raise_for_status()
+                v_data = v_response.json()
                 return v_data['downloads']['server']['url']
         
         print(f"Version {version} not found in manifest.")
@@ -497,8 +496,9 @@ def get_paper_url(version):
     try:
         # Get builds for version
         version_url = f"{base_url}/versions/{version}/builds"
-        with urllib.request.urlopen(version_url) as response:
-            data = json.loads(response.read().decode())
+        response = requests.get(version_url, timeout=10)
+        response.raise_for_status()
+        data = response.json()
         
         if not data['builds']:
             print_error(f"No builds found for Paper version {version}")
@@ -514,7 +514,7 @@ def get_paper_url(version):
         download_url = f"{base_url}/versions/{version}/builds/{build_num}/downloads/{file_name}"
         return download_url
         
-    except urllib.error.HTTPError as e:
+    except requests.exceptions.RequestException as e:
         print_error(f"Error fetching PaperMC info: {e}")
         return None
     except Exception as e:
@@ -525,17 +525,20 @@ def install_fabric(instance_dir, version):
     print_info(f"Fetching Fabric info for Minecraft {version}...")
     try:
         # Get loader version
-        with urllib.request.urlopen(f"https://meta.fabricmc.net/v2/versions/loader/{version}") as response:
-            data = json.loads(response.read().decode())
-            if not data:
-                print_error(f"No Fabric loader found for version {version}.")
-                return False
-            loader_version = data[0]['loader']['version']
+        response = requests.get(f"https://meta.fabricmc.net/v2/versions/loader/{version}", timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        
+        if not data:
+            print_error(f"No Fabric loader found for version {version}.")
+            return False
+        loader_version = data[0]['loader']['version']
         
         # Get installer version
-        with urllib.request.urlopen("https://meta.fabricmc.net/v2/versions/installer") as response:
-            data = json.loads(response.read().decode())
-            installer_version = data[0]['version']
+        response = requests.get("https://meta.fabricmc.net/v2/versions/installer", timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        installer_version = data[0]['version']
 
         # Construct download URL
         # https://meta.fabricmc.net/v2/versions/loader/{game_version}/{loader_version}/{installer_version}/server/jar
@@ -556,8 +559,9 @@ def install_forge(instance_dir, mc_version):
     try:
         # Fetch promotions_slim.json
         promo_url = "https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json"
-        with urllib.request.urlopen(promo_url) as response:
-            data = json.loads(response.read().decode())
+        response = requests.get(promo_url, timeout=10)
+        response.raise_for_status()
+        data = response.json()
         
         promos = data.get("promos", {})
         # Try recommended first, then latest
@@ -626,12 +630,12 @@ def install_neoforge(instance_dir, mc_version):
         nf_prefix = f"{parts[1]}.{parts[2] if len(parts) > 2 else '0'}"
         
         metadata_url = "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml"
-        req = urllib.request.Request(metadata_url)
-        req.add_header("User-Agent", "MineManage/1.0")
+        headers = {"User-Agent": "MineManage/1.0"}
         
-        with urllib.request.urlopen(req) as response:
-            xml_data = response.read()
-            root = ET.fromstring(xml_data)
+        response = requests.get(metadata_url, headers=headers, timeout=10)
+        response.raise_for_status()
+        xml_data = response.content
+        root = ET.fromstring(xml_data)
             
             # Find latest version matching prefix
             # Use strict matching (e.g. "21.1." to avoid matching "21.10")
@@ -806,23 +810,19 @@ def install_modpack_from_api(slug_or_id):
     try:
         # Get Project
         url = f"https://api.modrinth.com/v2/project/{slug_or_id}"
-        req = urllib.request.Request(url)
-        req.add_header("User-Agent", "MineManage/1.0 (launcher)")
+        headers = {"User-Agent": "MineManage/1.0 (launcher)"}
         
-        with urllib.request.urlopen(req) as response:
-            project = json.load(response)
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        project = response.json()
             
         print_info(f"Found project: {project['title']}")
         
         # Get Versions
-        # We want the latest version compatible with any loader we support
-        # But modpacks usually define the loader. So let's just get the latest version.
         versions_url = f"https://api.modrinth.com/v2/project/{slug_or_id}/version"
-        req = urllib.request.Request(versions_url)
-        req.add_header("User-Agent", "MineManage/1.0 (launcher)")
-        
-        with urllib.request.urlopen(req) as response:
-            versions = json.load(response)
+        response = requests.get(versions_url, headers=headers, timeout=10)
+        response.raise_for_status()
+        versions = response.json()
             
         if not versions:
             print_error("No versions found for this modpack.")
@@ -859,8 +859,8 @@ def install_modpack_from_api(slug_or_id):
             # Clean up
             os.remove(filename)
         
-    except urllib.error.HTTPError as e:
-        if e.code == 404:
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 404:
             print_error("Modpack not found.")
         else:
             print_error(f"API Error: {e}")
@@ -925,15 +925,17 @@ def install_server_core(instance_name, version, server_type):
     elif server_type == "paper":
         builds_url = f"https://api.papermc.io/v2/projects/paper/versions/{version}/builds"
         try:
-            with urllib.request.urlopen(builds_url) as response:
-                data = json.loads(response.read().decode())
-                latest_build = data["builds"][-1]["build"]
-                download = data["builds"][-1]["downloads"]["application"]["name"]
-                
-                download_url = f"https://api.papermc.io/v2/projects/paper/versions/{version}/builds/{latest_build}/downloads/{download}"
-                
-                print_info(f"Downloading Paper {version} build {latest_build}...")
-                download_file_with_progress(download_url, jar_file)
+            response = requests.get(builds_url, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            
+            latest_build = data["builds"][-1]["build"]
+            download = data["builds"][-1]["downloads"]["application"]["name"]
+            
+            download_url = f"https://api.papermc.io/v2/projects/paper/versions/{version}/builds/{latest_build}/downloads/{download}"
+            
+            print_info(f"Downloading Paper {version} build {latest_build}...")
+            download_file_with_progress(download_url, jar_file)
         except Exception as e:
             print_error(f"Failed to download Paper: {e}")
             return False
@@ -945,8 +947,9 @@ def install_server_core(instance_name, version, server_type):
         # https://piston-meta.mojang.com/mc/game/version_manifest.json
         try:
             print_info(f"Fetching Vanilla version info for {version}...")
-            with urllib.request.urlopen("https://piston-meta.mojang.com/mc/game/version_manifest.json") as response:
-                data = json.loads(response.read().decode())
+            response = requests.get("https://piston-meta.mojang.com/mc/game/version_manifest.json", timeout=10)
+            response.raise_for_status()
+            data = response.json()
                 
             version_url = None
             for v in data['versions']:
@@ -958,9 +961,10 @@ def install_server_core(instance_name, version, server_type):
                 print_error(f"Version {version} not found.")
                 return False
                 
-            with urllib.request.urlopen(version_url) as response:
-                v_data = json.loads(response.read().decode())
-                url = v_data['downloads']['server']['url']
+            response = requests.get(version_url, timeout=10)
+            response.raise_for_status()
+            v_data = response.json()
+            url = v_data['downloads']['server']['url']
                 
         except Exception as e:
             print_error(f"Failed to get Vanilla version info: {e}")
@@ -2806,16 +2810,12 @@ def search_modrinth(query, version, loaders, project_type="mod"):
             "facets": facets,
             "limit": 5
         }
-        query_string = urllib.parse.urlencode(params)
-        url = f"{base_url}?{query_string}"
         
-        req = urllib.request.Request(url)
-        req.add_header("User-Agent", "MineManage/1.0 (launcher)")
-        
-        with urllib.request.urlopen(req) as response:
-            if response.status == 200:
-                data = json.loads(response.read().decode())
-                return data.get("hits", [])
+        headers = {"User-Agent": "MineManage/1.0 (launcher)"}
+        response = requests.get(base_url, params=params, headers=headers, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        return data.get("hits", [])
     except Exception as e:
         print_error(f"Modrinth search failed: {e}")
     return []
@@ -2831,26 +2831,23 @@ def get_latest_project_file(slug, version, loaders):
             "loaders": json.dumps(loaders),
             "game_versions": json.dumps([version])
         }
-        query_string = urllib.parse.urlencode(params)
         
-        full_url = f"{url}?{query_string}"
-        req = urllib.request.Request(full_url)
-        req.add_header("User-Agent", "MineManage/1.0 (launcher)")
+        headers = {"User-Agent": "MineManage/1.0 (launcher)"}
+        response = requests.get(url, params=params, headers=headers, timeout=10)
         
-        with urllib.request.urlopen(req) as response:
-            if response.status == 200:
-                versions = json.loads(response.read().decode())
-                # Versions are returned sorted by date (newest first) by default
-                for v in versions:
-                    # Double check compatibility
-                    if version in v['game_versions']:
-                        # Check if any of our loaders are in the version's loaders
-                        if any(l in v['loaders'] for l in loaders):
-                            files = v.get('files', [])
-                            if files:
-                                # Prefer primary file
-                                primary = next((f for f in files if f.get('primary')), files[0])
-                                return primary['url'], primary['filename'], v.get('dependencies', [])
+        if response.status_code == 200:
+            versions = response.json()
+            # Versions are returned sorted by date (newest first) by default
+            for v in versions:
+                # Double check compatibility
+                if version in v['game_versions']:
+                    # Check if any of our loaders are in the version's loaders
+                    if any(l in v['loaders'] for l in loaders):
+                        files = v.get('files', [])
+                        if files:
+                            # Prefer primary file
+                            primary = next((f for f in files if f.get('primary')), files[0])
+                            return primary['url'], primary['filename'], v.get('dependencies', [])
     except Exception as e:
         print_error(f"Failed to get project file: {e}")
     return None, None, []
@@ -3086,8 +3083,8 @@ def cmd_network(args):
         
         # Public IP
         try:
-            with urllib.request.urlopen("https://ifconfig.me", timeout=5) as response:
-                public_ip = response.read().decode().strip()
+            response = requests.get("https://ifconfig.me", timeout=5)
+            public_ip = response.text.strip()
         except Exception:
             public_ip = "Unknown (Check internet connection)"
         print(f"Public IP: {Colors.BLUE}{public_ip}{Colors.ENDC}")
