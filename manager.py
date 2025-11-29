@@ -21,7 +21,7 @@ import miniupnpc
 import readline
 import zipfile
 
-__version__ = "1.5.0"
+__version__ = "1.6.0"
 
 # Check for dev mode
 if os.path.exists(os.path.join(os.path.expanduser("~/.minemanage"), ".dev_mode")):
