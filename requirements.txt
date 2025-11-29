@@ -26,5 +26,6 @@
 # click     # For better CLI handling
 # rich      # For better TUI/Colors
 # External Dependencies
+requests
 tqdm
 miniupnpc
