@@ -19,7 +19,9 @@ import xml.etree.ElementTree as ET
 from tqdm import tqdm
 import miniupnpc
 import readline
+import readline
 import zipfile
+import psutil
 
 __version__ = "1.6.0"
 
@@ -2120,27 +2122,36 @@ def is_port_in_use(port):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         return s.connect_ex(('localhost', int(port))) == 0
 
-def get_system_stats(pid):
-    if not pid:
-        return 0.0, 0
+def get_system_stats(pid=None):
+    """
+    Get system and process stats using psutil.
+    Returns (sys_cpu, sys_ram_percent, sys_ram_used_gb, sys_ram_total_gb, proc_cpu, proc_ram_mb)
+    """
     try:
-        # ps -p PID -o %cpu,rss
-        cmd = ["ps", "-p", str(pid), "-o", "%cpu,rss"]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        lines = result.stdout.strip().split('\n')
-        if len(lines) > 1:
-            # Parse second line
-            # %CPU   RSS
-            # 12.5  204800
-            parts = lines[1].split()
-            if len(parts) >= 2:
-                cpu = float(parts[0])
-                rss_kb = int(parts[1])
-                rss_mb = rss_kb / 1024
-                return cpu, rss_mb
+        # System Stats
+        sys_cpu = psutil.cpu_percent(interval=None)
+        mem = psutil.virtual_memory()
+        sys_ram_percent = mem.percent
+        sys_ram_used_gb = mem.used / (1024**3)
+        sys_ram_total_gb = mem.total / (1024**3)
+        
+        proc_cpu = 0.0
+        proc_ram_mb = 0.0
+        
+        if pid:
+            try:
+                proc = psutil.Process(pid)
+                # Process Stats
+                # cpu_percent can be > 100% on multi-core, divide by count? No, standard is total.
+                proc_cpu = proc.cpu_percent(interval=None)
+                proc_ram_mb = proc.memory_info().rss / (1024**2)
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+                
+        return sys_cpu, sys_ram_percent, sys_ram_used_gb, sys_ram_total_gb, proc_cpu, proc_ram_mb
+        
     except Exception:
-        pass
-    return 0.0, 0
+        return 0, 0, 0, 0, 0, 0
 
 def get_player_count():
     # Minecraft Server List Ping (SLP) 1.7+
@@ -2695,25 +2706,35 @@ def cmd_dashboard(args):
         print(f"Instance: {Colors.BLUE}{instance_name}{Colors.ENDC} | {config.get('server_version')} ({config.get('server_type')})")
         
         # Stats
-        cpu = 0.0
-        ram = 0
+        pid = None
         players_online = "?"
         players_max = "?"
-        
+        sys_cpu, sys_ram_pct, sys_ram_used, sys_ram_total, proc_cpu, proc_ram = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+
         if running:
             pid = get_server_pid()
             if pid:
-                cpu, ram = get_system_stats(pid)
+                sys_cpu, sys_ram_pct, sys_ram_used, sys_ram_total, proc_cpu, proc_ram = get_system_stats(pid)
             
             p_online, p_max = get_player_count()
             if p_online is not None:
                 players_online = p_online
                 players_max = p_max
         
-        # Live Stats Display
-        print("-" * 30)
-        print(f"CPU: {cpu:.1f}% | RAM: {ram:.0f} MB | Players: {players_online}/{players_max}")
-        print("-" * 30)
+        # Get Stats
+        # Format
+        # System: CPU 12% | RAM 4.5/16G (28%)
+        # Server: CPU 5% | RAM 2048M
+        
+        stats_line = f"System: CPU {sys_cpu:.1f}% | RAM {sys_ram_used:.1f}/{sys_ram_total:.1f}GB ({sys_ram_pct:.1f}%)"
+        if pid:
+            stats_line += f"\nServer: CPU {proc_cpu:.1f}% | RAM {proc_ram:.0f}MB | Players: {players_online}/{players_max}"
+        else:
+             stats_line += f"\nServer: STOPPED"
+
+        print(Colors.HEADER + "-"*30 + Colors.ENDC)
+        print(stats_line)
+        print(Colors.HEADER + "-"*30 + Colors.ENDC)
         
         print("\nMain Menu:")
         print("[1] Server Control...")
