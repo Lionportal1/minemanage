@@ -2642,10 +2642,51 @@ def get_latest_project_file(slug, version, loaders):
                             if files:
                                 # Prefer primary file
                                 primary = next((f for f in files if f.get('primary')), files[0])
-                                return primary['url'], primary['filename']
+                                return primary['url'], primary['filename'], v.get('dependencies', [])
     except Exception as e:
         print_error(f"Failed to get project file: {e}")
-    return None, None
+    return None, None, []
+
+def install_mod_with_dependencies(slug, version, loader, mods_dir, installed_ids=None):
+    """Recursively install a mod and its required dependencies."""
+    if installed_ids is None:
+        installed_ids = set()
+        
+    # Modrinth API allows using Project ID or Slug interchangeably in most endpoints
+    # We use the ID/Slug to track what we've processed to avoid infinite loops
+    if slug in installed_ids:
+        return
+    
+    installed_ids.add(slug)
+    
+    print_info(f"Resolving {slug}...")
+    url, filename, dependencies = get_latest_project_file(slug, version, loader)
+    
+    if not url or not filename:
+        print_error(f"Could not find compatible version for {slug}")
+        return
+
+    dest = os.path.join(mods_dir, filename)
+    if os.path.exists(dest):
+        print_info(f"Mod {filename} already exists. Skipping download.")
+    else:
+        print_info(f"Downloading {filename}...")
+        try:
+            download_file_with_progress(url, dest)
+            print_success(f"Installed {filename}")
+        except Exception as e:
+            print_error(f"Failed to download {filename}: {e}")
+            return
+
+    # Handle dependencies
+    if dependencies:
+        for dep in dependencies:
+            dep_type = dep.get('dependency_type')
+            project_id = dep.get('project_id')
+            
+            if dep_type == "required" and project_id:
+                print_info(f"Found required dependency for {slug}: {project_id}")
+                install_mod_with_dependencies(project_id, version, loader, mods_dir, installed_ids)
 
 def cmd_mods(args):
     instance_dir = get_instance_dir()
@@ -2743,18 +2784,9 @@ def cmd_mods(args):
                 if 1 <= choice <= len(hits):
                     selected = hits[choice-1]
                     slug = selected['slug']
-                    print_info(f"Fetching latest version for {selected['title']}...")
-                    url, filename = get_latest_project_file(slug, version, loader)
+                    print_info(f"Installing {selected['title']} and dependencies...")
+                    install_mod_with_dependencies(slug, version, loader, mods_dir)
                     
-                    if url and filename:
-                        dest = os.path.join(mods_dir, filename)
-                        print_info(f"Downloading {filename}...")
-                        download_file_with_progress(url, dest)
-                        print_success(f"Installed {filename}")
-                    else:
-                        print_error("Could not find a compatible file for download.")
-                else:
-                    print_error("Invalid selection.")
             except ValueError:
                 print_error("Invalid input.")
 
