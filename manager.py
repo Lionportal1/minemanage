@@ -452,9 +452,94 @@ def print_warning(msg):
     print(f"{Colors.WARNING}{msg}{Colors.ENDC}")
     logging.warning(msg)
 
+def check_for_updates(force=False):
+    """
+    Check for updates on GitHub.
+    Returns (is_available, latest_version_string)
+    """
+    # Check config first
+    config = load_config()
+    if not config.get("auto_update_check", True) and not force:
+        return False, None
+
+    cache_file = os.path.join(CONFIG_DIR, "update_cache.json")
+    current_time = time.time()
+    cache_duration = 86400  # 24 hours
+
+    # Try to read cache
+    if not force and os.path.exists(cache_file):
+        try:
+            with open(cache_file, 'r') as f:
+                cache = json.load(f)
+            if current_time - cache.get("last_check", 0) < cache_duration:
+                # Cache is valid
+                latest = cache.get("latest_version")
+                if latest and latest != __version__:
+                     # Simple string comparison isn't perfect but works if we stick to vX.Y.Z
+                     # Let's strip 'v' and compare tuples
+                     def parse_ver(v):
+                         return tuple(map(int, (v.lstrip('v').split('.'))))
+                     
+                     if parse_ver(latest) > parse_ver(__version__):
+                         return True, latest
+                return False, None
+        except Exception:
+            pass # Ignore cache errors
+
+    # Fetch from API
+    try:
+        url = "https://api.github.com/repos/Lionportal1/minemanage/releases/latest"
+        response = requests.get(url, timeout=3) # Short timeout to not block startup
+        if response.status_code == 200:
+            data = response.json()
+            latest_tag = data.get("tag_name", "")
+            
+            # Save to cache
+            try:
+                with open(cache_file, 'w') as f:
+                    json.dump({
+                        "last_check": current_time,
+                        "latest_version": latest_tag
+                    }, f)
+            except Exception:
+                pass
+
+            if latest_tag:
+                 def parse_ver(v):
+                     try:
+                        return tuple(map(int, (v.lstrip('v').split('.'))))
+                     except ValueError:
+                        return (0,0,0)
+
+                 if parse_ver(latest_tag) > parse_ver(__version__):
+                     return True, latest_tag
+    except Exception:
+        pass # Fail silently on network errors during auto-check
+        
+    return False, None
+
+def cmd_check_update(args):
+    """Force check for updates."""
+    print_info("Checking for updates...")
+    available, latest = check_for_updates(force=True)
+    
+    if available:
+        print_success(f"Update available! {Colors.BOLD}{latest}{Colors.ENDC} (Current: {__version__})")
+        print(f"Run the installer again to upgrade:\ncurl -O https://raw.githubusercontent.com/Lionportal1/minemanage/main/install.sh && bash install.sh")
+    else:
+        print_success(f"You are up to date ({__version__}).")
+
 def print_header(text):
     print(f"\n{Colors.HEADER}=== {text} (v{__version__}) ==={Colors.ENDC}")
     logging.info(f"--- {text} ---")
+    
+    # Auto-check for updates (non-blocking/cached)
+    try:
+        available, latest = check_for_updates()
+        if available:
+            print(f"{Colors.WARNING}Notice: New version available: {latest}{Colors.ENDC}")
+    except Exception:
+        pass
 
 class SimpleCompleter:
     def __init__(self, options):
@@ -3460,6 +3545,9 @@ def main():
     # Migrate command
     parser_migrate = subparsers.add_parser("migrate", help="Migrate legacy server to instances")
 
+    # Check Update command
+    parser_check_update = subparsers.add_parser("check-update", help="Check for updates")
+
     args = parser.parse_args()
     
     if args.command == "init":
@@ -3496,6 +3584,8 @@ def main():
         cmd_dashboard(args)
     elif args.command == "migrate":
         cmd_migrate(args)
+    elif args.command == "check-update":
+        cmd_check_update(args)
     else:
         parser.print_help()
 
