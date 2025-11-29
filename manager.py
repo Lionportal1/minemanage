@@ -1470,7 +1470,7 @@ def cmd_config(args):
         instance_name = config.get("current_instance", "default")
         i_cfg = load_instance_config(instance_name)
         i_cfg["optimization_enabled"] = enabled
-        save_instance_config(instance_name, i_cfg)
+        save_instance_config(i_cfg, instance_name)
         
         status = "enabled" if enabled else "disabled"
         print_success(f"Server optimization (Aikar's flags) {status} for '{instance_name}'.")
