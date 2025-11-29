@@ -637,37 +637,37 @@ def install_neoforge(instance_dir, mc_version):
         xml_data = response.content
         root = ET.fromstring(xml_data)
             
-            # Find latest version matching prefix
-            # Use strict matching (e.g. "21.1." to avoid matching "21.10")
-            versions = []
-            strict_prefix = nf_prefix + "."
-            for v in root.findall(".//version"):
-                if v.text.startswith(strict_prefix):
-                    versions.append(v.text)
+        # Find latest version matching prefix
+        # Use strict matching (e.g. "21.1." to avoid matching "21.10")
+        versions = []
+        strict_prefix = nf_prefix + "."
+        for v in root.findall(".//version"):
+            if v.text.startswith(strict_prefix):
+                versions.append(v.text)
+        
+        if not versions:
+            print_error(f"No NeoForge version found for Minecraft {mc_version}")
+            return False
             
-            if not versions:
-                print_error(f"No NeoForge version found for Minecraft {mc_version}")
-                return False
-                
-            # Sort versions? They are usually sorted in metadata, but let's take the last one (latest)
-            latest_version = versions[-1]
-            print_info(f"Selected NeoForge version: {latest_version}")
-            
-            installer_url = f"https://maven.neoforged.net/releases/net/neoforged/neoforge/{latest_version}/neoforge-{latest_version}-installer.jar"
-            installer_path = os.path.join(instance_dir, "installer.jar")
-            
-            print_info(f"Downloading installer from {installer_url}...")
-            download_file_with_progress(installer_url, installer_path)
-            
-            print_info("Running NeoForge installer (this may take a while)...")
-            # Run installer: java -jar installer.jar --installServer
-            # We are in instance_dir, so just use filename
-            subprocess.check_call(["java", "-jar", "installer.jar", "--installServer"], cwd=instance_dir)
-            
-            # Cleanup
-            os.remove(installer_path)
-            
-            return True
+        # Sort versions? They are usually sorted in metadata, but let's take the last one (latest)
+        latest_version = versions[-1]
+        print_info(f"Selected NeoForge version: {latest_version}")
+        
+        installer_url = f"https://maven.neoforged.net/releases/net/neoforged/neoforge/{latest_version}/neoforge-{latest_version}-installer.jar"
+        installer_path = os.path.join(instance_dir, "installer.jar")
+        
+        print_info(f"Downloading installer from {installer_url}...")
+        download_file_with_progress(installer_url, installer_path)
+        
+        print_info("Running NeoForge installer (this may take a while)...")
+        # Run installer: java -jar installer.jar --installServer
+        # We are in instance_dir, so just use filename
+        subprocess.check_call(["java", "-jar", "installer.jar", "--installServer"], cwd=instance_dir)
+        
+        # Cleanup
+        os.remove(installer_path)
+        
+        return True
             
     except Exception as e:
         print_error(f"Failed to install NeoForge: {e}")
