@@ -91,7 +91,7 @@ echo -e "\n${YELLOW}Setting up MineManage...${NC}"
 
 # Configuration
 REPO="Lionportal1/minemanage"
-VERSION="v1.3" # Default fallback
+VERSION="v1.6" # Default fallback
 
 # Parse arguments
 if [[ "$1" == "--dev" ]]; then
