@@ -33,3 +33,4 @@ venv/
 build/
 dist/
 *.spec
+AGENT_RULES.md
