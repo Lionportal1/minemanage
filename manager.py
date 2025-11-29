@@ -1115,21 +1115,12 @@ def cmd_start(args):
     # Check for port conflicts
     # Get target port
     props = read_server_properties(server_dir)
-    target_port = props.get("server-port", "25565")
+    target_port = int(props.get("server-port", "25565"))
     
-    # Check all other running instances
-    if os.path.exists(INSTANCES_DIR):
-        for inst in os.listdir(INSTANCES_DIR):
-            if inst == target_instance:
-                continue
-            if is_server_running(inst):
-                other_dir = get_instance_dir(inst)
-                other_props = read_server_properties(other_dir)
-                other_port = other_props.get("server-port", "25565")
-                
-                if target_port == other_port:
-                    print_error(f"Port conflict! Instance '{inst}' is already running on port {target_port}.")
-                    return
+    # Check if port is actually in use by ANY process
+    if is_port_in_use(target_port):
+        print_error(f"Port conflict! Port {target_port} is already in use by another process.")
+        return
 
     ram_min = args.ram if args.ram else i_cfg.get("ram_min", "2G")
     ram_max = args.ram if args.ram else i_cfg.get("ram_max", "4G")
@@ -1167,6 +1158,10 @@ def cmd_start(args):
             print_info(f"Use 'minemanage console {target_instance}' to view the console.")
         except subprocess.CalledProcessError as e:
             print_error(f"Failed to start screen session: {e}")
+        except FileNotFoundError:
+            print_error("Failed to start server: 'screen' command not found. Please install screen.")
+        except Exception as e:
+            print_error(f"An unexpected error occurred while starting the server: {e}")
             
     else:
         # Run in foreground
@@ -1175,6 +1170,10 @@ def cmd_start(args):
             subprocess.run(launch_cmd, cwd=server_dir)
         except KeyboardInterrupt:
             print_info("\nServer stopped.")
+        except FileNotFoundError:
+            print_error(f"Failed to start server: Java executable not found. Please check your config.")
+        except Exception as e:
+            print_error(f"An unexpected error occurred: {e}")
 
 def cmd_stop(args):
     config = load_config()
@@ -1869,6 +1868,10 @@ def cmd_console(args):
         print_error(f"Failed to attach: {e}")
 
 def get_screen_name(instance_name=None):
+    """
+    Get the screen session name for a specific instance.
+    Defaults to the currently selected instance if none provided.
+    """
     if not instance_name:
         config = get_global_config()
         instance_name = config.get("current_instance", "default")
@@ -1906,6 +1909,10 @@ def get_server_pid(instance_name=None):
     return None
 
 def is_server_running(instance_name=None):
+    """
+    Check if the server instance is currently running.
+    Checks for both a PID and the screen session existence.
+    """
     # Check if screen session exists OR if PID exists
     if get_server_pid(instance_name) is not None:
         return True
@@ -1916,6 +1923,13 @@ def is_server_running(instance_name=None):
         return get_screen_name(instance_name) in result.stdout
     except FileNotFoundError:
         return False
+
+def is_port_in_use(port):
+    """
+    Check if a TCP port is already in use by any process.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex(('localhost', int(port))) == 0
 
 def get_system_stats(pid):
     if not pid:
@@ -2722,7 +2736,16 @@ def get_latest_project_file(slug, version, loaders):
     return None, None, []
 
 def install_mod_with_dependencies(slug, version, loader, mods_dir, installed_ids=None):
-    """Recursively install a mod and its required dependencies."""
+    """
+    Recursively install a mod and its required dependencies.
+    
+    Args:
+        slug (str): The slug or project ID of the mod to install.
+        version (str): The Minecraft version.
+        loader (str): The mod loader (fabric, forge, etc.).
+        mods_dir (str): The directory to install mods into.
+        installed_ids (set, optional): Set of already processed project IDs to prevent loops.
+    """
     if installed_ids is None:
         installed_ids = set()
         
