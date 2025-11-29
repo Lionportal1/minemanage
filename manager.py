@@ -1049,14 +1049,35 @@ def _get_forge_launch_command(server_dir, config, ram_min, ram_max):
             with open(jvm_args_path, 'r') as f:
                 existing_lines = f.readlines()
         
-        # Filter out old memory settings
-        new_lines = [l for l in existing_lines if not l.strip().startswith("-Xms") and not l.strip().startswith("-Xmx")]
+        # Filter out old memory settings and previous optimization blocks
+        new_lines = []
+        skip = False
+        for l in existing_lines:
+            stripped = l.strip()
+            if stripped == "# MINEMANAGE OPTIMIZATION START":
+                skip = True
+                continue
+            if stripped == "# MINEMANAGE OPTIMIZATION END":
+                skip = False
+                continue
+            if skip:
+                continue
+                
+            if not stripped.startswith("-Xms") and not stripped.startswith("-Xmx"):
+                new_lines.append(l)
         
         # Append new memory settings
         if new_lines and not new_lines[-1].endswith('\n'):
             new_lines[-1] += '\n'
         new_lines.append(f"-Xms{ram_min}\n")
         new_lines.append(f"-Xmx{ram_max}\n")
+        
+        # Append Aikar's flags if enabled
+        if config.get("optimization_enabled", False):
+            new_lines.append("# MINEMANAGE OPTIMIZATION START\n")
+            for flag in _get_aikars_flags():
+                new_lines.append(f"{flag}\n")
+            new_lines.append("# MINEMANAGE OPTIMIZATION END\n")
         
         with open(jvm_args_path, 'w') as f:
             f.writelines(new_lines)
@@ -1068,6 +1089,29 @@ def _get_forge_launch_command(server_dir, config, ram_min, ram_max):
         # Launch command is just the script
         return [f"./{run_script}"]
 
+def _get_aikars_flags():
+    """Returns a list of Aikar's optimized JVM flags."""
+    return [
+        "-XX:+UseG1GC",
+        "-XX:+ParallelRefProcEnabled",
+        "-XX:MaxGCPauseMillis=200",
+        "-XX:+UnlockExperimentalVMOptions",
+        "-XX:+DisableExplicitGC",
+        "-XX:+AlwaysPreTouch",
+        "-XX:G1NewSizePercent=30",
+        "-XX:G1MaxNewSizePercent=40",
+        "-XX:G1HeapRegionSize=8M",
+        "-XX:G1ReservePercent=20",
+        "-XX:G1HeapWastePercent=5",
+        "-XX:G1MixedGCCountTarget=4",
+        "-XX:InitiatingHeapOccupancyPercent=15",
+        "-XX:G1MixedGCLiveThresholdPercent=90",
+        "-XX:G1RSetUpdatingPauseTimePercent=5",
+        "-XX:SurvivorRatio=32",
+        "-XX:+PerfDisableSharedMem",
+        "-XX:MaxTenuringThreshold=1"
+    ]
+
 def _get_vanilla_launch_command(server_dir, config, ram_min, ram_max):
     """Constructs the launch command for Vanilla/Paper/Fabric servers."""
     jar_path = os.path.join(server_dir, SERVER_JAR)
@@ -1075,14 +1119,21 @@ def _get_vanilla_launch_command(server_dir, config, ram_min, ram_max):
         print_error(f"Server jar not found at {jar_path}. Run 'init' first.")
         return None
 
-    return [
-        config.get("java_path", "java"),
+    cmd = [config.get("java_path", "java")]
+    
+    # Add Aikar's flags if optimization is enabled
+    if config.get("optimization_enabled", False):
+        cmd.extend(_get_aikars_flags())
+        
+    cmd.extend([
         f"-Xms{ram_min}",
         f"-Xmx{ram_max}",
         "-jar",
         SERVER_JAR,
         "nogui"
-    ]
+    ])
+    
+    return cmd
 
 def cmd_start(args):
     config = load_config()
@@ -1403,6 +1454,24 @@ def cmd_config(args):
         config[args.key] = args.value
         save_config(config)
         print_success(f"Set {args.key} to {args.value}")
+    elif args.action == "optimize":
+        if not args.value:
+            print_error("Usage: config optimize [enable|disable]")
+            return
+            
+        val = args.value.lower()
+        if val not in ["enable", "disable"]:
+            print_error("Invalid value. Use 'enable' or 'disable'.")
+            return
+            
+        enabled = (val == "enable")
+        config["optimization_enabled"] = enabled
+        save_instance_config(instance_name, config)
+        
+        status = "enabled" if enabled else "disabled"
+        print_success(f"Server optimization (Aikar's flags) {status} for '{instance_name}'.")
+        print_info("Restart the server for changes to take effect.")
+
     elif args.action == "set-prop":
         if not args.key or not args.value:
             print_error("Usage: config set-prop <key> <value>")
@@ -2249,6 +2318,7 @@ def dashboard_config_users():
         print_header("=== Configuration & Users ===")
         print("\nCommands:")
         print("[E]dit Server Properties")
+        print("[O]ptimize Server (Aikar's Flags)")
         print("[U]sers (Whitelist/Ops/Bans)")
         print("[G]lobal Settings")
         print("[B]ack to Main Menu")
@@ -2258,6 +2328,25 @@ def dashboard_config_users():
         if choice == 'e':
             args = argparse.Namespace(action="properties", key=None, value=None)
             cmd_config(args)
+            input("\nPress Enter to continue...")
+        elif choice == 'o':
+            print("\nServer Optimization (Aikar's Flags)")
+            print("These flags are industry standard for reducing lag spikes.")
+            print("1. Enable")
+            print("2. Disable")
+            opt_choice = input("Select option: ")
+            
+            val = None
+            if opt_choice == '1': val = "enable"
+            elif opt_choice == '2': val = "disable"
+            
+            if val:
+                args = argparse.Namespace(action="optimize", value=val)
+                # We need to pass the current instance name implicitly or explicitly
+                # cmd_config uses global config current_instance by default which is what we want
+                cmd_config(args)
+            else:
+                print_error("Invalid selection.")
             input("\nPress Enter to continue...")
         elif choice == 'u':
             dashboard_users_menu()
