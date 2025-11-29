@@ -422,6 +422,7 @@ class Colors:
     BOLD = '\033[1m'
     UNDERLINE = '\033[4m'
     YELLOW = '\033[93m'
+    RED = '\033[91m'
 
 def print_success(msg):
     print(f"{Colors.GREEN}{msg}{Colors.ENDC}")
