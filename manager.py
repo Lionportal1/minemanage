@@ -372,10 +372,7 @@ def ensure_directories(instance_dir=None):
     Path(BACKUP_DIR).mkdir(exist_ok=True)
     Path(os.path.join(instance_dir, "logs")).mkdir(parents=True, exist_ok=True)
 
-def get_screen_name():
-    config = get_global_config()
-    instance = config.get("current_instance", "default")
-    return f"minemanage_{instance}"
+
 
 
 
@@ -398,17 +395,7 @@ def get_vanilla_url(version):
         print(f"Error fetching version info: {e}")
         return None
 
-def is_server_running():
-    # Check if screen session exists OR if PID exists
-    if get_server_pid() is not None:
-        return True
-        
-    try:
-        # grep for the screen name (redundant if get_server_pid checks screen, but good for safety)
-        result = subprocess.run(["screen", "-list"], capture_output=True, text=True)
-        return get_screen_name() in result.stdout
-    except FileNotFoundError:
-        return False
+
 
 def send_command(cmd):
     if not is_server_running():
@@ -1098,26 +1085,45 @@ def _get_vanilla_launch_command(server_dir, config, ram_min, ram_max):
 
 def cmd_start(args):
     config = load_config()
-    server_dir = os.path.abspath(get_instance_dir())
+    
+    # Determine target instance
+    target_instance = config.get("current_instance", "default")
+    if hasattr(args, 'name') and args.name:
+        target_instance = args.name
+        
+    server_dir = os.path.abspath(get_instance_dir(target_instance))
     jar_path = os.path.join(server_dir, SERVER_JAR)
     eula_path = os.path.join(server_dir, EULA_FILE)
     
     if not os.path.exists(eula_path):
-        print_error("EULA not found. Run 'init' first.")
+        print_error(f"EULA not found for '{target_instance}'. Run 'init' first.")
         return
         
     # Check EULA content
     with open(eula_path, 'r') as f:
         if "eula=true" not in f.read():
-            print_error("EULA not accepted in eula.txt. Please edit the file or run init again.")
+            print_error(f"EULA not accepted for '{target_instance}'. Please edit eula.txt or run init again.")
             return
 
-    if is_server_running():
-        print_info("Server is already running.")
+    if is_server_running(target_instance):
+        print_info(f"Server '{target_instance}' is already running.")
         return
 
-    ram_min = args.ram if args.ram else config.get("ram_min", "2G")
-    ram_max = args.ram if args.ram else config.get("ram_max", "4G")
+    # Load instance config
+    i_cfg = load_instance_config(target_instance)
+    
+    # Check for port conflicts
+    # Get target port
+    props = read_server_properties(server_dir)
+    target_port = int(props.get("server-port", "25565"))
+    
+    # Check if port is actually in use by ANY process
+    if is_port_in_use(target_port):
+        print_error(f"Port conflict! Port {target_port} is already in use by another process.")
+        return
+
+    ram_min = args.ram if args.ram else i_cfg.get("ram_min", "2G")
+    ram_max = args.ram if args.ram else i_cfg.get("ram_max", "4G")
     
     if args.ram:
         ram_max = args.ram
@@ -1126,10 +1132,11 @@ def cmd_start(args):
     # Construct command
     launch_cmd = []
     
-    if config.get("server_type") == "neoforge" or config.get("server_type") == "forge":
-        launch_cmd = _get_forge_launch_command(server_dir, config, ram_min, ram_max)
+    stype = i_cfg.get("server_type", "vanilla")
+    if stype == "neoforge" or stype == "forge":
+        launch_cmd = _get_forge_launch_command(server_dir, i_cfg, ram_min, ram_max)
     else:
-        launch_cmd = _get_vanilla_launch_command(server_dir, config, ram_min, ram_max)
+        launch_cmd = _get_vanilla_launch_command(server_dir, i_cfg, ram_min, ram_max)
 
     if not launch_cmd:
         return
@@ -1137,56 +1144,89 @@ def cmd_start(args):
     # Execute
     if not args.attach:
         # Run in screen
-        screen_name = get_screen_name()
+        screen_name = get_screen_name(target_instance)
         
-        # Check if already running
-        if is_server_running():
-            print_error("Server is already running.")
-            return
-
-        print_info(f"Starting server in detached screen session '{screen_name}'...")
+        print_info(f"Starting server '{target_instance}' in detached screen session '{screen_name}'...")
         
         # Construct screen command
-        # screen -dmS <name> <command>
-        # We need to run the command inside the server directory
-        
-        # For screen, we want to execute the command.
-        # If launch_cmd is a list, join it.
         cmd_str = " ".join(launch_cmd)
-        
-        # Explicitly cd into the directory to ensure run scripts work correctly
-        # This fixes issues where screen/bash might not respect the CWD or run scripts depend on PWD
         full_cmd = f"cd \"{server_dir}\" && {cmd_str}"
         
         try:
-            # We still keep cwd=server_dir for the screen process itself, but the bash command now has explicit cd
             subprocess.run(["screen", "-dmS", screen_name, "bash", "-c", full_cmd], cwd=server_dir, check=True)
-            print_success("Server started.")
-            print_info("Use 'minemanage console' to view the console.")
+            print_success(f"Server '{target_instance}' started.")
+            print_info(f"Use 'minemanage console {target_instance}' to view the console.")
         except subprocess.CalledProcessError as e:
             print_error(f"Failed to start screen session: {e}")
+        except FileNotFoundError:
+            print_error("Failed to start server: 'screen' command not found. Please install screen.")
+        except Exception as e:
+            print_error(f"An unexpected error occurred while starting the server: {e}")
             
     else:
         # Run in foreground
-        print_info("Starting server in foreground (Ctrl+C to stop)...")
+        print_info(f"Starting server '{target_instance}' in foreground (Ctrl+C to stop)...")
         try:
             subprocess.run(launch_cmd, cwd=server_dir)
         except KeyboardInterrupt:
             print_info("\nServer stopped.")
+        except FileNotFoundError:
+            print_error(f"Failed to start server: Java executable not found. Please check your config.")
+        except Exception as e:
+            print_error(f"An unexpected error occurred: {e}")
 
 def cmd_stop(args):
-    if is_server_running():
-        print_info("Stopping server...")
-        send_command("stop")
+    config = load_config()
+    target_instance = config.get("current_instance", "default")
+    if hasattr(args, 'name') and args.name:
+        target_instance = args.name
+
+    if is_server_running(target_instance):
+        print_info(f"Stopping server '{target_instance}'...")
+        # We need to send the command to the specific screen session
+        # send_command uses is_server_running() which defaults to current.
+        # We need to refactor send_command or just use subprocess directly here for robustness
+        
+        # Refactored send_command logic inline for specific instance:
+        screen_name = get_screen_name(target_instance)
+        cmd = "stop"
+        try:
+            subprocess.run(["screen", "-S", screen_name, "-X", "stuff", f"{cmd}\r"], check=True)
+        except subprocess.CalledProcessError:
+            print_error(f"Failed to send stop command to '{target_instance}'.")
+            
         # Wait for it to actually stop
         for _ in range(30):
-            if not is_server_running():
-                print_success("Server stopped.")
+            if not is_server_running(target_instance):
+                print_success(f"Server '{target_instance}' stopped.")
                 return
             time.sleep(1)
-        print_error("Server did not stop in time. You may need to kill the screen session.")
+        print_error(f"Server '{target_instance}' did not stop in time. You may need to kill the screen session.")
     else:
-        print_info("Server is not running (or not in a managed screen session).")
+        print_info(f"Server '{target_instance}' is not running.")
+
+# ... (skipping to cmd_console)
+
+def cmd_console(args):
+    config = load_config()
+    target_instance = config.get("current_instance", "default")
+    if hasattr(args, 'name') and args.name:
+        target_instance = args.name
+
+    if not is_server_running(target_instance):
+        print_error(f"Server '{target_instance}' is not running.")
+        return
+
+    print_header(f"Attaching to server console for '{target_instance}'...")
+    print_info("Press Ctrl+A, then D to detach and return here.")
+    print_info("Press Enter to continue...")
+    input()
+    
+    try:
+        # screen -r name
+        subprocess.run(["screen", "-r", get_screen_name(target_instance)])
+    except Exception as e:
+        print_error(f"Failed to attach: {e}")
 
 def cmd_kill(args):
     config = load_config()
@@ -1807,27 +1847,42 @@ def cmd_logs(args):
         print_info("\nStopped streaming logs.")
 
 def cmd_console(args):
-    if not is_server_running():
-        print_error("Server is not running.")
+    config = load_config()
+    target_instance = config.get("current_instance", "default")
+    if hasattr(args, 'name') and args.name:
+        target_instance = args.name
+
+    if not is_server_running(target_instance):
+        print_error(f"Server '{target_instance}' is not running.")
         return
 
-    print_header("Attaching to server console...")
+    print_header(f"Attaching to server console for '{target_instance}'...")
     print_info("Press Ctrl+A, then D to detach and return here.")
     print_info("Press Enter to continue...")
     input()
     
     try:
         # screen -r name
-        subprocess.run(["screen", "-r", get_screen_name()])
+        subprocess.run(["screen", "-r", get_screen_name(target_instance)])
     except Exception as e:
         print_error(f"Failed to attach: {e}")
 
-def get_server_pid():
+def get_screen_name(instance_name=None):
     """
-    Get the PID of the screen session for the current instance.
+    Get the screen session name for a specific instance.
+    Defaults to the currently selected instance if none provided.
+    """
+    if not instance_name:
+        config = get_global_config()
+        instance_name = config.get("current_instance", "default")
+    return f"minemanage_{instance_name}"
+
+def get_server_pid(instance_name=None):
+    """
+    Get the PID of the screen session for the specified instance.
     Reliably parses 'screen -ls' output.
     """
-    screen_name = get_screen_name()
+    screen_name = get_screen_name(instance_name)
     try:
         # Run screen -ls
         # Output format:
@@ -1852,6 +1907,29 @@ def get_server_pid():
         pass
         
     return None
+
+def is_server_running(instance_name=None):
+    """
+    Check if the server instance is currently running.
+    Checks for both a PID and the screen session existence.
+    """
+    # Check if screen session exists OR if PID exists
+    if get_server_pid(instance_name) is not None:
+        return True
+        
+    try:
+        # grep for the screen name (redundant if get_server_pid checks screen, but good for safety)
+        result = subprocess.run(["screen", "-list"], capture_output=True, text=True)
+        return get_screen_name(instance_name) in result.stdout
+    except FileNotFoundError:
+        return False
+
+def is_port_in_use(port):
+    """
+    Check if a TCP port is already in use by any process.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex(('localhost', int(port))) == 0
 
 def get_system_stats(pid):
     if not pid:
@@ -1994,7 +2072,17 @@ def dashboard_instances_menu():
             for inst in instances:
                 prefix = "* " if inst == current else "  "
                 color = Colors.GREEN if inst == current else ""
-                print(f"{prefix}{color}{inst}{Colors.ENDC}")
+                
+                # Get status and port
+                status = f"{Colors.RED}Stopped{Colors.ENDC}"
+                if is_server_running(inst):
+                    status = f"{Colors.GREEN}Running{Colors.ENDC}"
+                
+                i_dir = os.path.join(INSTANCES_DIR, inst)
+                props = read_server_properties(i_dir)
+                port = props.get("server-port", "25565")
+                
+                print(f"{prefix}{color}{inst}{Colors.ENDC} ({status}, Port: {port})")
         
         print("\nCommands:")
         print("[C]reate (Name)")
@@ -2648,7 +2736,16 @@ def get_latest_project_file(slug, version, loaders):
     return None, None, []
 
 def install_mod_with_dependencies(slug, version, loader, mods_dir, installed_ids=None):
-    """Recursively install a mod and its required dependencies."""
+    """
+    Recursively install a mod and its required dependencies.
+    
+    Args:
+        slug (str): The slug or project ID of the mod to install.
+        version (str): The Minecraft version.
+        loader (str): The mod loader (fabric, forge, etc.).
+        mods_dir (str): The directory to install mods into.
+        installed_ids (set, optional): Set of already processed project IDs to prevent loops.
+    """
     if installed_ids is None:
         installed_ids = set()
         
@@ -3038,7 +3135,18 @@ def cmd_instance(args):
         for inst in instances:
             prefix = "* " if inst == current else "  "
             color = Colors.GREEN if inst == current else ""
-            print(f"{prefix}{color}{inst}{Colors.ENDC}")
+            
+            # Get status and port
+            status = f"{Colors.RED}Stopped{Colors.ENDC}"
+            if is_server_running(inst):
+                status = f"{Colors.GREEN}Running{Colors.ENDC}"
+                
+            # Get port
+            i_dir = os.path.join(INSTANCES_DIR, inst)
+            props = read_server_properties(i_dir)
+            port = props.get("server-port", "25565")
+            
+            print(f"{prefix}{color}{inst}{Colors.ENDC} ({status}, Port: {port})")
             
     elif args.action == "create":
         if not args.name:
@@ -3093,9 +3201,10 @@ def cmd_instance(args):
             print_error(f"Instance {args.name} not found.")
             return
             
-        if is_server_running():
-            print_error("Cannot switch instances while a server is running. Stop it first.")
-            return
+        # We now allow switching while running to support concurrency
+        # if is_server_running():
+        #    print_error("Cannot switch instances while a server is running. Stop it first.")
+        #    return
             
         config["current_instance"] = args.name
         save_global_config(config)
