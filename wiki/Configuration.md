@@ -26,11 +26,14 @@ Located in `~/.minemanage/instances/<name>/instance.json`. Controls settings spe
 | :--- | :--- | :--- |
 | `ram_min` | Minimum RAM allocation (Xms). | `2G` |
 | `ram_max` | Maximum RAM allocation (Xmx). | `4G` |
+| `optimization_enabled` | Enable Aikar's optimization flags. | `false` |
 | `server_type` | Loader type (`vanilla`, `paper`, `fabric`, `neoforge`, `forge`). | `paper` |
 | `server_version` | Minecraft version. | `1.20.4` |
 
 **CLI Command:**
-To edit instance config, you currently need to edit the file manually or use the `init` command to re-initialize (which updates version/type). RAM settings can be edited in `instance.json`.
+*   **RAM**: `minemanage config ram 4G 8G` (Sets Min to 4G, Max to 8G)
+*   **Optimization**: `minemanage config optimize enable` (Enables Aikar's flags)
+*   **Manual**: You can also edit `instance.json` manually.
 
 ## Server Properties (`server.properties`)
 

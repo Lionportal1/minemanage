@@ -51,6 +51,15 @@ minemanage stop
 
 Or press `[X] Stop` in the dashboard.
 
+## 5. Managing Multiple Instances
+
+MineManage v1.6+ supports running multiple servers at once.
+
+*   **Create**: `minemanage init --instance my-survival ...`
+*   **List**: `minemanage instance list` (Shows status and ports)
+*   **Switch**: `minemanage instance select my-survival`
+*   **Start Specific**: `minemanage start --instance my-creative`
+
 ## Next Steps
 
 *   [[Configuration]]: Customize RAM and server properties.

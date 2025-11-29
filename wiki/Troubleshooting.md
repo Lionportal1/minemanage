@@ -24,6 +24,17 @@ source ~/.zshrc
     *   **RAM**: You might have allocated too much RAM (more than available) or too little. Check `instance.json`.
     *   **Legacy Forge**: Older Forge versions (1.16.5 and below) often require **Java 8**. If you are using Java 17/21, the server will crash on startup.
 
+## Checking Logs
+
+MineManage v1.6+ logs all actions to a file. This is the best place to look for errors.
+
+**Log File Location**: `~/.minemanage/minemanage.log`
+
+To view it:
+```bash
+tail -f ~/.minemanage/minemanage.log
+```
+
 ## Permission Denied
 
 **Issue**: `Permission denied` errors.

@@ -34,10 +34,19 @@ The dashboard is divided into several sections:
 *   **[G]lobal Config**: Edit global settings like Java path.
 
 ### 4. Instance Manager
-*   **[I]nstances**: Create, switch, delete, or import instances.
+*   **[I]nstances**: Full instance management:
+    *   **Select**: Switch active instance.
+    *   **Create**: Initialize a new server.
+    *   **Delete**: Remove an instance.
+    *   **Import**: Import a modpack as a new instance.
+    *   **List**: View status of all instances.
 
 ### 5. System & Network
-*   **[N]etwork**: View IP, set port, or attempt UPnP port mapping.
+*   **[N]etwork**:
+    *   **Info**: View Local/Public IP and Port.
+    *   **Set Port**: Change the server port (updates `server.properties`).
+    *   **UPnP**: Attempt automatic port forwarding.
+    *   **Firewall**: Allow/Deny ports in system firewall (`ufw`/`firewalld`).
 
 ## Tips
 *   **Live Stats**: The top of the dashboard shows CPU usage, RAM usage, and Player Count in real-time.

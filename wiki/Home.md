@@ -5,11 +5,13 @@
 ## Key Features
 
 *   **Multi-Loader Support**: Install Vanilla, Paper, Fabric, NeoForge, or Forge with a single command.
-*   **Instance Management**: Create and switch between multiple server instances easily.
-*   **Mod & Plugin Manager**: Search and install mods and plugins directly from Modrinth.
+*   **Concurrent Instances**: Run multiple servers simultaneously with full isolation.
+*   **Server Optimization**: Built-in performance tuning with Aikar's flags.
+*   **Mod & Plugin Manager**: Search and install mods and plugins directly from Modrinth (with auto-dependencies).
 *   **Modpack Support**: Import `.mrpack` modpacks or install them from Modrinth.
 *   **Interactive Dashboard**: A beautiful TUI (Text User Interface) for managing your server.
 *   **Automated Backups**: Create and restore backups with ease.
+*   **Comprehensive Logging**: Detailed logs for debugging and auditing.
 *   **Security**: Runs without `sudo`, uses secure password hashing, and manages permissions.
 
 ## Quick Links
