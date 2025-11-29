@@ -1,33 +1,47 @@
-# MineManage v1.4 Release Notes
+# MineManage v1.6 Release Notes
 
-## 🚀 What's New
+## 🚀 Major Features
 
-### ⚒️ Forge Support
-MineManage now fully supports **Forge**! You can now install and run both modern (1.17+) and legacy (1.12.2 and older) Forge servers with ease.
--   **Initialize**: `minemanage init --type forge --version 1.20.1`
--   **Legacy Support**: Automatically detects and handles legacy Forge launch chains (Java 8 recommended for 1.16.5 and below).
+### 🔄 Concurrent Instance Management
+Run multiple Minecraft servers simultaneously!
+-   **Instance Isolation**: Each server runs in its own screen session with its own configuration.
+-   **Switching**: Easily switch between active instances using `minemanage instance select`.
+-   **Status**: View the status and port of all running instances at a glance.
 
-### ⌨️ CLI Polish & Experience Improvements
-We've listened to your feedback and polished the CLI experience:
--   **Detached Start**: `minemanage start` now runs in the background (detached) by default. No more accidental server shutdowns when closing your terminal! Use `--attach` to run in the foreground.
--   **Search Commands**: You can now search for content directly:
-    -   `minemanage mods search <query>`
-    -   `minemanage plugins search <query>`
--   **Easier Restores**: Restore backups simply with `minemanage restore mybackup.zip`.
--   **Ban Management**: Manage bans from the CLI with `minemanage users bans <list|add|remove>`.
+### ⚡ Server Optimization
+Built-in performance tuning for your servers.
+-   **Aikar's Flags**: Automatically applies Aikar's famous JVM optimization flags to reduce lag and GC spikes.
+-   **Toggle**: Enable or disable optimizations via `minemanage config optimize <enable|disable>`.
 
-### 📦 Dynamic Installer
-The installation script (`install.sh`) has been upgraded:
--   **Auto-Update**: Automatically fetches the latest stable release.
--   **Dev Mode**: Use `./install.sh --dev` to install the latest bleeding-edge code from the `main` branch.
+### 📝 Comprehensive Logging
+Never miss a detail with the new logging system.
+-   **Log File**: All actions, errors, and events are logged to `~/.minemanage/minemanage.log`.
+-   **Debugging**: Easier troubleshooting with detailed execution logs.
+
+### 🌐 Networking Improvements
+More robust and reliable network operations.
+-   **Robust Downloads**: Switched to the `requests` library for stable file downloads and API interactions.
+-   **Port Conflict Detection**: Prevents starting a server if the port is already in use.
+-   **Better UPnP**: Improved automatic port forwarding using `miniupnpc`.
+
+## ✨ Enhancements
+
+-   **Modrinth Auto-Dependencies**: Automatically downloads required dependencies when installing mods.
+-   **Visual Progress**: New progress bars (`tqdm`) for all downloads and long-running operations.
+-   **RAM Management**: Adjust server RAM limits directly from the CLI or Dashboard.
+-   **Dev Mode**: Clear visual indication when running a development build.
+-   **Firewall Management**: Manage system firewall ports directly from the Network menu.
 
 ## 🐛 Bug Fixes
--   Fixed an issue where `cmd_start` logic could be bypassed.
--   Fixed `restore` command ignoring positional arguments.
--   Fixed indentation and syntax errors in manager logic.
 
-## 📝 Upgrading
-To upgrade, simply run the installer again:
+-   Fixed `IndentationError` in NeoForge installation logic.
+-   Resolved issues with NeoForge startup on Linux.
+-   Fixed `AttributeError` related to color codes.
+-   Improved error handling for missing executables (Java, Screen).
+
+## 📦 Upgrading
+
+To upgrade to v1.6, run the installer:
 ```bash
-curl -O https://raw.githubusercontent.com/Lionportal1/minemanage/v1.4/install.sh && sudo bash install.sh
+curl -O https://raw.githubusercontent.com/Lionportal1/minemanage/main/install.sh && bash install.sh
 ```
