@@ -10,9 +10,27 @@ echo -e "${GREEN}=== MineManage Installer ===${NC}"
 
 # Check for Root
 if [ "$EUID" -eq 0 ]; then
-  echo -e "${RED}Error: Please do not run this script as root/sudo.${NC}"
-  echo -e "The script will ask for sudo permission when needed (to install dependencies)."
-  exit 1
+    # Check for override flag
+    ALLOW_ROOT=false
+    for arg in "$@"; do
+        if [ "$arg" == "--allow-root" ]; then
+            ALLOW_ROOT=true
+            break
+        fi
+    done
+
+    if [ "$ALLOW_ROOT" = true ]; then
+        echo -e "${YELLOW}Warning: Running as root. Proceeding due to --allow-root flag.${NC}"
+    else
+        echo -e "${YELLOW}Warning: You are running this script as root.${NC}"
+        echo -e "MineManage is designed to run as a standard user. Running as root may cause permission issues."
+        read -p "Are you sure you want to continue? (y/N) " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            echo -e "${RED}Aborting.${NC}"
+            exit 1
+        fi
+    fi
 fi
 
 # Check Dependencies & OS Detection
