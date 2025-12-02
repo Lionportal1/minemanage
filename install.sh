@@ -49,7 +49,10 @@ if [ "$EUID" -eq 0 ]; then
             chown "$TARGET_USER:$TARGET_USER" "$USER_HOME/install.sh"
             
             echo -e "${GREEN}Switching to user '$TARGET_USER' to continue installation...${NC}"
-            su - "$TARGET_USER" -c "bash install.sh"
+            # Pass all original arguments ($@) to the inner script
+            # We use printf %q to safely quote arguments
+            ARGS=$(printf " %q" "$@")
+            su - "$TARGET_USER" -c "bash install.sh $ARGS"
             exit 0
         else
             echo -e "${YELLOW}Warning: Proceeding as root may cause permission issues.${NC}"
