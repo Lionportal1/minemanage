@@ -23,12 +23,42 @@ if [ "$EUID" -eq 0 ]; then
         echo -e "${YELLOW}Warning: Running as root. Proceeding due to --allow-root flag.${NC}"
     else
         echo -e "${YELLOW}Warning: You are running this script as root.${NC}"
-        echo -e "MineManage is designed to run as a standard user. Running as root may cause permission issues."
-        read -p "Are you sure you want to continue? (y/N) " -n 1 -r
+        echo -e "It is recommended to run MineManage as a dedicated user."
+        
+        read -p "Would you like to create a 'minemanage' user and install there? (Y/n) " -n 1 -r
         echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            echo -e "${RED}Aborting.${NC}"
-            exit 1
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            TARGET_USER="minemanage"
+            if id "$TARGET_USER" &>/dev/null; then
+                echo -e "${YELLOW}User '$TARGET_USER' already exists.${NC}"
+            else
+                echo -e "Creating user '$TARGET_USER'..."
+                if command -v useradd &> /dev/null; then
+                    useradd -m -s /bin/bash "$TARGET_USER"
+                elif command -v adduser &> /dev/null; then
+                    adduser --disabled-password --gecos "" "$TARGET_USER"
+                else
+                    echo -e "${RED}Error: Could not find useradd or adduser. Please create the user manually.${NC}"
+                    exit 1
+                fi
+            fi
+            
+            # Copy script to new user's home and run it
+            USER_HOME=$(eval echo "~$TARGET_USER")
+            cp "$0" "$USER_HOME/install.sh"
+            chown "$TARGET_USER:$TARGET_USER" "$USER_HOME/install.sh"
+            
+            echo -e "${GREEN}Switching to user '$TARGET_USER' to continue installation...${NC}"
+            su - "$TARGET_USER" -c "bash install.sh"
+            exit 0
+        else
+            echo -e "${YELLOW}Warning: Proceeding as root may cause permission issues.${NC}"
+            read -p "Are you sure you want to continue as root? (y/N) " -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                echo -e "${RED}Aborting.${NC}"
+                exit 1
+            fi
         fi
     fi
 fi
