@@ -2958,6 +2958,81 @@ def get_latest_project_file(slug, version, loaders):
         print_error(f"Failed to get project file: {e}")
     return None, None, []
 
+def calculate_sha1(filepath):
+    """Calculate SHA1 hash of a file."""
+    sha1 = hashlib.sha1()
+    with open(filepath, 'rb') as f:
+        while True:
+            data = f.read(65536)
+            if not data:
+                break
+            sha1.update(data)
+    return sha1.hexdigest()
+
+def check_mod_updates(mods_dir, loader, game_version):
+    """
+    Check for mod updates using Modrinth's version_file/update endpoint.
+    Returns a list of updates: [{'file': filename, 'new_version': version_obj}]
+    """
+    if not os.path.exists(mods_dir):
+        return []
+
+    # 1. Gather hashes
+    hashes = {} # hash -> filename
+    files = [f for f in os.listdir(mods_dir) if f.endswith(".jar")]
+    
+    if not files:
+        return []
+
+    print_info(f"Hashing {len(files)} mods...")
+    
+    # Use tqdm if available for hashing large lists
+    iterator = tqdm(files, desc="Hashing mods", unit="file", leave=False)
+    
+    for filename in iterator:
+        filepath = os.path.join(mods_dir, filename)
+        try:
+            h = calculate_sha1(filepath)
+            hashes[h] = filename
+        except Exception:
+            pass
+
+    if not hashes:
+        return []
+
+    # 2. Query Modrinth
+    url = "https://api.modrinth.com/v2/version_file/update"
+    payload = {
+        "hashes": list(hashes.keys()),
+        "algorithm": "sha1",
+        "loaders": [loader],
+        "game_versions": [game_version]
+    }
+    
+    print_info("Querying Modrinth API...")
+    try:
+        response = requests.post(url, json=payload, headers={"User-Agent": "MineManage/1.0"}, timeout=10)
+        if response.status_code != 200:
+            print_error(f"Failed to check updates: {response.status_code}")
+            return []
+            
+        data = response.json()
+        # Response format: {"hash": {"id": "...", ...}}
+        
+        updates = []
+        for h, new_ver in data.items():
+            if h in hashes:
+                updates.append({
+                    "filename": hashes[h],
+                    "new_version": new_ver
+                })
+        
+        return updates
+
+    except Exception as e:
+        print_error(f"Error checking updates: {e}")
+        return []
+
 def install_mod_with_dependencies(slug, version, loader, mods_dir, installed_ids=None):
     """
     Recursively install a mod and its required dependencies.
@@ -3123,6 +3198,39 @@ def cmd_mods(args):
             print_success(f"Removed {target_file}")
         else:
             print_error(f"Mod {target_file} not found.")
+
+    elif args.action == "check":
+        config = load_config()
+        version = config.get("server_version")
+        loader = config.get("server_type", "vanilla").lower()
+        
+        if loader not in ["fabric", "forge", "neoforge", "quilt"]:
+            print_error(f"Update checking not supported for loader: {loader}")
+            return
+
+        updates = check_mod_updates(mods_dir, loader, version)
+        
+        if not updates:
+            print_success("All mods are up to date (or unknown to Modrinth).")
+        else:
+            print_header(f"Found {len(updates)} Updates:")
+            print(f"{'File':<40} | {'New Version':<20} | {'Type'}")
+            print("-" * 80)
+            for up in updates:
+                fname = up['filename']
+                if len(fname) > 37:
+                    fname = fname[:37] + "..."
+                
+                new_ver = up['new_version']
+                ver_num = new_ver.get('version_number', 'Unknown')
+                v_type = new_ver.get('version_type', 'release')
+                
+                # Color based on type
+                color = Colors.GREEN if v_type == 'release' else Colors.YELLOW
+                
+                print(f"{fname:<40} | {color}{ver_num:<20}{Colors.ENDC} | {v_type}")
+            
+            print(f"\nTo update, remove the old file and install the new one (Auto-update coming in v1.8).")
 
 def dashboard_mods_menu():
     while True:
@@ -3533,8 +3641,9 @@ def main():
 
     # Mods command
     parser_mods = subparsers.add_parser("mods", help="Manage mods")
-    parser_mods.add_argument("action", choices=["list", "install", "remove", "search"], help="Action to perform")
-    parser_mods.add_argument("target", nargs="?", help="Mod URL (install) or Filename (remove)")
+    parser_mods.add_argument("action", choices=["list", "search", "install", "remove", "check"], help="Action to perform")
+    parser_mods.add_argument("target", nargs="?", help="Mod name, URL, or filename")
+    parser_mods.set_defaults(func=cmd_mods)
 
     # Network command
     parser_network = subparsers.add_parser("network", help="Network tools")
