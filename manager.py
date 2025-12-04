@@ -2112,15 +2112,32 @@ def is_server_running(instance_name=None):
         # grep for the screen name (redundant if get_server_pid checks screen, but good for safety)
         result = subprocess.run(["screen", "-list"], capture_output=True, text=True)
         return get_screen_name(instance_name) in result.stdout
-    except FileNotFoundError:
         return False
 
-def is_port_in_use(port):
-    """
-    Check if a TCP port is already in use by any process.
-    """
+def check_port(port):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         return s.connect_ex(('localhost', int(port))) == 0
+
+def get_local_ip():
+    """Get the local network IP address."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+        return local_ip
+    except Exception:
+        return "127.0.0.1"
+
+def get_public_ip():
+    """Get the public IP address."""
+    try:
+        response = requests.get("https://ifconfig.me", timeout=5)
+        if response.status_code == 200:
+            return response.text.strip()
+    except Exception:
+        pass
+    return "Unknown"
 
 def get_system_stats(pid=None):
     """
@@ -3286,26 +3303,85 @@ def dashboard_mods_menu():
 
 
 
+def cmd_network_setup(args):
+    print_header("=== Public Server Setup Wizard ===")
+    print_info("This wizard will help you make your server accessible from the internet.")
+    print_warning("WARNING: Exposing your server allows anyone with the IP to join/attack it.")
+    print_warning("Ensure you have a whitelist enabled ('minemanage config whitelist on') or a strong firewall.")
+    
+    print("\nStep 1: Analyzing Network...")
+    
+    # Get Details
+    local_ip = get_local_ip()
+    public_ip = get_public_ip()
+    
+    server_dir = get_instance_dir()
+    props = read_server_properties(server_dir)
+    port = int(props.get("server-port", "25565"))
+    
+    print(f"  Local IP:  {Colors.GREEN}{local_ip}{Colors.ENDC}")
+    print(f"  Public IP: {Colors.BLUE}{public_ip}{Colors.ENDC}")
+    print(f"  Port:      {Colors.YELLOW}{port}{Colors.ENDC}")
+    
+    print("\nStep 2: Automatic Configuration (UPnP)...")
+    print_info("Attempting to automatically map ports on your router...")
+    
+    upnp_success = False
+    try:
+        u = miniupnpc.UPnP()
+        u.discoverdelay = 200
+        u.discover()
+        u.selectigd()
+        
+        # Add mappings
+        res_tcp = u.addportmapping(port, 'TCP', local_ip, port, 'MineManage Server', '')
+        res_udp = u.addportmapping(port, 'UDP', local_ip, port, 'MineManage Server', '')
+        
+        if res_tcp:
+            print_success("UPnP Port Mapping Successful!")
+            upnp_success = True
+        else:
+            print_warning("UPnP discovered router but failed to map port.")
+            
+    except Exception as e:
+        print_error(f"UPnP failed: {e}")
+        print_info("Your router might not support UPnP or it is disabled.")
+
+    if upnp_success:
+        print("\nStep 3: Connection Details")
+        print_success("Your server should now be accessible!")
+        print(f"Share this address with your friends: {Colors.BOLD}{Colors.GREEN}{public_ip}:{port}{Colors.ENDC}")
+    else:
+        print("\nStep 3: Manual Configuration Required")
+        print_warning("Automatic setup failed. You must configure your router manually.")
+        print("\nInstructions:")
+        print("1. Log into your router's admin page (usually http://192.168.1.1 or http://192.168.0.1).")
+        print("2. Look for 'Port Forwarding', 'Virtual Server', or 'NAT' settings.")
+        print("3. Create a new rule with these details:")
+        print(f"   - Name:        MineManage")
+        print(f"   - Protocol:    TCP & UDP")
+        print(f"   - Internal IP: {Colors.GREEN}{local_ip}{Colors.ENDC}")
+        print(f"   - Port:        {Colors.YELLOW}{port}{Colors.ENDC}")
+        print("\n4. Save settings and restart the router if needed.")
+        print(f"\nOnce done, your server address will be: {Colors.BOLD}{Colors.BLUE}{public_ip}:{port}{Colors.ENDC}")
+
+    print("\n[Optional] You can verify the port is open using sites like https://mcsrvstat.us/")
+    input("\nPress Enter to finish...")
+
 def cmd_network(args):
+    if args.action == "setup":
+        cmd_network_setup(args)
+        return
+
     if args.action == "info":
         print_header("Network Information:")
         
         # Local IP
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80))
-            local_ip = s.getsockname()[0]
-            s.close()
-        except Exception:
-            local_ip = "Unknown"
+        local_ip = get_local_ip()
         print(f"Local IP: {Colors.GREEN}{local_ip}{Colors.ENDC}")
         
         # Public IP
-        try:
-            response = requests.get("https://ifconfig.me", timeout=5)
-            public_ip = response.text.strip()
-        except Exception:
-            public_ip = "Unknown (Check internet connection)"
+        public_ip = get_public_ip()
         print(f"Public IP: {Colors.BLUE}{public_ip}{Colors.ENDC}")
         
         # Port
@@ -3365,13 +3441,7 @@ def cmd_network(args):
             port = int(props.get("server-port", "25565"))
             
             # Get local IP
-            try:
-                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                s.connect(("8.8.8.8", 80))
-                local_ip = s.getsockname()[0]
-                s.close()
-            except Exception:
-                local_ip = u.lanaddr
+            local_ip = get_local_ip()
             
             print_info(f"Adding port mapping: {external_ip}:{port} -> {local_ip}:{port} (TCP/UDP)")
             
@@ -3400,6 +3470,7 @@ def dashboard_network_menu():
         cmd_network(args)
         
         print("\nCommands:")
+        print("[S]etup Public Access (Wizard)")
         print("[P]ort (Set Port)")
         print("[U]PnP (Auto-Map Port)")
         print("[F]irewall (UFW)")
@@ -3407,7 +3478,10 @@ def dashboard_network_menu():
         
         choice = input("\nEnter command: ").lower()
         
-        if choice == 'p':
+        if choice == 's':
+            args = argparse.Namespace(action="setup")
+            cmd_network(args)
+        elif choice == 'p':
             port = input("Enter new port: ").strip()
             if port:
                 args = argparse.Namespace(action="set-port", value=port)
@@ -3652,9 +3726,10 @@ def main():
 
     # Network command
     parser_network = subparsers.add_parser("network", help="Network tools")
-    parser_network.add_argument("action", choices=["info", "set-port", "upnp", "firewall"], help="Action to perform")
-    parser_network.add_argument("value", nargs="?", help="Value for set-port or firewall sub-action (allow/deny/status)")
-    parser_network.add_argument("--port", help="Port for firewall action")
+    parser_network.add_argument("action", choices=["info", "set-port", "upnp", "firewall", "setup"], help="Action to perform")
+    parser_network.add_argument("value", nargs="?", help="Value for action (e.g. port number)")
+    parser_network.add_argument("--port", help="Port for firewall rules")
+    parser_network.set_defaults(func=cmd_network)
 
     # Instance command
     parser_instance = subparsers.add_parser("instance", help="Manage server instances")
