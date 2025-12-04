@@ -227,10 +227,79 @@ def verify_password(stored_password, provided_password):
         if hashlib.sha256(provided_password.encode()).hexdigest() == stored_password:
             # Create new PBKDF2 hash for this password
             new_hash = hash_password(provided_password)
-            # Indicate caller should update the stored value to new_hash
             return True, new_hash
-        else:
-            return False
+            
+    return False
+
+class RateLimiter:
+    """
+    Simple file-based rate limiter to prevent brute-force attacks.
+    """
+    def __init__(self, max_attempts=5, lockout_minutes=15):
+        self.max_attempts = max_attempts
+        self.lockout_minutes = lockout_minutes
+        self.state_file = os.path.join(os.path.expanduser("~/.minemanage"), "login_attempts.json")
+
+    def _load_state(self):
+        if not os.path.exists(self.state_file):
+            return {"attempts": 0, "last_attempt": 0, "lockout_until": 0}
+        try:
+            with open(self.state_file, 'r') as f:
+                return json.load(f)
+        except Exception:
+            return {"attempts": 0, "last_attempt": 0, "lockout_until": 0}
+
+    def _save_state(self, state):
+        try:
+            with open(self.state_file, 'w') as f:
+                json.dump(state, f)
+        except Exception:
+            pass
+
+    def check(self):
+        """
+        Check if action is allowed.
+        Returns (allowed, message)
+        """
+        state = self._load_state()
+        now = time.time()
+
+        if state["lockout_until"] > now:
+            remaining = int((state["lockout_until"] - now) / 60) + 1
+            return False, f"Too many failed attempts. Try again in {remaining} minutes."
+
+        return True, ""
+
+    def record_failure(self):
+        """Record a failed login attempt."""
+        state = self._load_state()
+        now = time.time()
+        
+        # If lockout expired, reset
+        if state["lockout_until"] > 0 and state["lockout_until"] < now:
+            state["attempts"] = 0
+            state["lockout_until"] = 0
+
+        # If last attempt was long ago (e.g. > lockout time), reset
+        # This is a simple sliding window approximation
+        if (now - state["last_attempt"]) > (self.lockout_minutes * 60):
+            state["attempts"] = 0
+
+        state["attempts"] += 1
+        state["last_attempt"] = now
+
+        if state["attempts"] >= self.max_attempts:
+            state["lockout_until"] = now + (self.lockout_minutes * 60)
+            
+        self._save_state(state)
+
+    def record_success(self):
+        """Reset attempts on successful login."""
+        state = self._load_state()
+        state["attempts"] = 0
+        state["lockout_until"] = 0
+        state["last_attempt"] = 0
+        self._save_state(state)
 
 def read_server_properties(server_dir):
     """
@@ -1402,11 +1471,30 @@ def cmd_kill(args):
         return
 
     print(f"{Colors.WARNING}WARNING: This will instantly kill the server process. Data loss may occur.{Colors.ENDC}")
+    
+    limiter = RateLimiter()
+    allowed, msg = limiter.check()
+    if not allowed:
+        print_error(msg)
+        return
+
     password = getpass.getpass("Enter admin password: ")
     
-    if not verify_password(admin_hash, password):
+    result = verify_password(admin_hash, password)
+    # Handle tuple return from upgrade check
+    success = False
+    if isinstance(result, tuple):
+        success = result[0]
+        # We could upgrade hash here but config saving is complex in this context, skip for now
+    else:
+        success = result
+
+    if not success:
+        limiter.record_failure()
         print_error("Incorrect password.")
         return
+    
+    limiter.record_success()
         
     print_info("Killing server session...")
     
@@ -2708,6 +2796,38 @@ def dashboard_admin_menu():
 
 
 def cmd_dashboard(args):
+    # Security Check
+    config = load_config()
+    admin_hash = config.get("admin_password_hash")
+    
+    if admin_hash:
+        limiter = RateLimiter()
+        allowed, msg = limiter.check()
+        if not allowed:
+            print_error(msg)
+            return
+
+        print_header("=== MineManage Login ===")
+        try:
+            password = getpass.getpass("Enter admin password: ")
+        except KeyboardInterrupt:
+            print()
+            return
+
+        result = verify_password(admin_hash, password)
+        success = False
+        if isinstance(result, tuple):
+            success = result[0]
+        else:
+            success = result
+
+        if not success:
+            limiter.record_failure()
+            print_error("Incorrect password.")
+            return
+        
+        limiter.record_success()
+
     while True:
         os.system('cls' if os.name == 'nt' else 'clear')
         print_header("=== MineManage Dashboard ===")
