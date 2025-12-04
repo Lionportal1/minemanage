@@ -3254,6 +3254,7 @@ def dashboard_mods_menu():
         print("\nCommands:")
         print("[I]nstall (Search or URL)")
         print("[R]emove (Filename)")
+        print("[C]heck Updates")
         print("[B]ack to Dashboard")
         
         choice = input("\nEnter command: ").lower()
@@ -3276,6 +3277,10 @@ def dashboard_mods_menu():
                 args = argparse.Namespace(action="remove", target=target_file)
                 cmd_mods(args)
                 input("\nPress Enter to continue...")
+        elif choice == 'c':
+            args = argparse.Namespace(action="check", target=None)
+            cmd_mods(args)
+            input("\nPress Enter to continue...")
         elif choice == 'b':
             break
 
