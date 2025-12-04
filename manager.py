@@ -2112,6 +2112,7 @@ def is_server_running(instance_name=None):
         # grep for the screen name (redundant if get_server_pid checks screen, but good for safety)
         result = subprocess.run(["screen", "-list"], capture_output=True, text=True)
         return get_screen_name(instance_name) in result.stdout
+    except FileNotFoundError:
         return False
 
 def check_port(port):
