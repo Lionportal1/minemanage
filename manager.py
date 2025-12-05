@@ -3783,6 +3783,33 @@ def cmd_instance(args):
         save_instance_config(i_cfg, current)
         print_success(f"Updated RAM settings for '{current}': Min={i_cfg.get('ram_min')}, Max={i_cfg.get('ram_max')}")
 
+def check_system_compatibility():
+    """Check if the system meets requirements."""
+    # 1. OS Check
+    if os.name == 'nt':
+        print_error("CRITICAL: Native Windows is NOT supported.")
+        print_info("MineManage relies on 'screen' which is not available on Windows.")
+        print_info("Please use WSL (Windows Subsystem for Linux) to run MineManage on Windows.")
+        sys.exit(1)
+
+    # 2. Dependency Check
+    missing_deps = []
+    
+    # Critical
+    if not shutil.which("screen"):
+        print_error("CRITICAL: 'screen' is not installed.")
+        print_info("Install it via your package manager (e.g., 'sudo apt install screen').")
+        sys.exit(1)
+
+    # Warnings
+    if not shutil.which("java"):
+        print_warning("WARNING: 'java' not found in PATH.")
+        print_info("You will need to install Java or set 'java_path' in config to run a server.")
+
+    if not shutil.which("git"):
+        print_warning("WARNING: 'git' not found.")
+        print_info("Some features (like auto-updating) may not work.")
+
 def main():
     setup_logging()
     
@@ -3790,6 +3817,8 @@ def main():
     if not os.path.exists(CONFIG_DIR):
         os.makedirs(CONFIG_DIR)
 
+    check_system_compatibility()
+    
     parser = argparse.ArgumentParser(description="MineManage - Minecraft Server Manager")
     parser.add_argument("--version", action="version", version=f"MineManage v{__version__}")
     subparsers = parser.add_subparsers(dest="command", help="Command to execute")
